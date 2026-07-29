@@ -1,0 +1,53 @@
+name: issue-8-standalone-real-data-validation
+on:
+  pull_request:
+    branches:
+      - feature/issue-8-topo-msm-5k-standalone
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[test]"
+      - name: Fetch and verify official terrain distribution
+        run: |
+          curl -fsSL --max-time 180 \
+            -o /tmp/chikeidata_joho648.zip \
+            http://www.jmbsc-west.jp/jp/online/online-sample/joho-sample/chikeidata_joho648.zip
+          echo "6251a2494d8ac0ce6a26ee7c8a8dabc854010c5e9173d5b963ba4880791d242e  /tmp/chikeidata_joho648.zip" | sha256sum --check
+          python - <<'PY'
+          import hashlib
+          import io
+          import pathlib
+          import zipfile
+
+          outer_path = pathlib.Path("/tmp/chikeidata_joho648.zip")
+          output = pathlib.Path("/tmp/msm-topography")
+          output.mkdir()
+          with zipfile.ZipFile(outer_path) as outer:
+              inner_bytes = outer.read("202505_MSM地形データ.zip")
+          assert hashlib.sha256(inner_bytes).hexdigest() == "06f678659f8d01b7fc44fe3736da51d78cd398358eca51a34dedea8c9eec75bb"
+          with zipfile.ZipFile(io.BytesIO(inner_bytes)) as inner:
+              for name in (
+                  "202505_MSM地形データ/TOPO.MSM_5K",
+                  "202505_MSM地形データ/LANDSEA.MSM_5K",
+              ):
+                  destination = output / pathlib.Path(name).name
+                  destination.write_bytes(inner.read(name))
+          assert hashlib.sha256((output / "TOPO.MSM_5K").read_bytes()).hexdigest() == "6ce16ae3781399dad2d618220d81fc41938aa54d693174c33ba347ad976f5250"
+          assert hashlib.sha256((output / "LANDSEA.MSM_5K").read_bytes()).hexdigest() == "322bbb1a4086174f7ac813accc391118a1fcd7d13c3135878f52e716f6870483"
+          PY
+      - name: Run official terrain and fixed RISH run tests
+        env:
+          MSM_TOPO_ARCHIVE: /tmp/chikeidata_joho648.zip
+          MSM_TOPO_5K: /tmp/msm-topography/TOPO.MSM_5K
+          MSM_LANDSEA_5K: /tmp/msm-topography/LANDSEA.MSM_5K
+          MSM_RUN_REAL_DATA: "1"
+          MSM_REAL_DATA_CACHE: /tmp/msm-real-data
+        run: >-
+          pytest -q -s -m real_data
+          tests/test_interpolated_terrain_real_data.py
