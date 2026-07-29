@@ -28,3 +28,7 @@ class MissingVariableError(MsmError):
 
 class StaticTerrainUnavailableError(MsmError):
     pass
+
+
+class TerrainValidationError(MsmError):
+    pass

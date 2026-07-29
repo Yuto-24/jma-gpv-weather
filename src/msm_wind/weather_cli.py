@@ -14,6 +14,7 @@ from . import (
     EstimatedQnhQuery,
     ForecastRequirements,
     GridTerrainProvider,
+    InterpolatedMsmTopographyProvider,
     MsmClient,
     RunId,
     SurfaceWindQuery,
@@ -76,13 +77,26 @@ def build_parser():
         query.add_argument("--run", type=_datetime)
         query.add_argument("--lat", type=float, required=True)
         query.add_argument("--lon", type=float, required=True)
-        query.add_argument("--terrain-cache", type=Path)
+        terrain = query.add_mutually_exclusive_group()
+        terrain.add_argument("--terrain-cache", type=Path)
+        terrain.add_argument("--interpolated-terrain-cache", type=Path)
     commands.choices["query-aloft"].add_argument("--altitude-m-msl", type=float, required=True)
     commands.choices["query-qnh"].add_argument("--elevation-m-msl", type=float, required=True)
 
     terrain = commands.add_parser("prepare-terrain", allow_abbrev=False)
     terrain.add_argument("--input-grib", type=Path, required=True)
     terrain.add_argument("--output", type=Path, required=True)
+
+    interpolated_terrain = commands.add_parser(
+        "prepare-interpolated-terrain", allow_abbrev=False
+    )
+    source = interpolated_terrain.add_mutually_exclusive_group(required=True)
+    source.add_argument("--distribution-archive", type=Path)
+    source.add_argument("--topography", type=Path)
+    interpolated_terrain.add_argument("--landsea", type=Path)
+    interpolated_terrain.add_argument("--source-manifest", type=Path, required=True)
+    interpolated_terrain.add_argument("--output", type=Path, required=True)
+
     commands.add_parser("cache-verify", allow_abbrev=False)
     return parser
 
@@ -97,6 +111,41 @@ def main(argv=None):
         if args.command == "prepare-terrain":
             provider = GridTerrainProvider.from_grib(args.input_grib, bounds)
             _print({"terrain_cache": provider.save(args.output), "source": provider.source})
+            return 0
+        if args.command == "prepare-interpolated-terrain":
+            if args.distribution_archive is not None:
+                provider = (
+                    InterpolatedMsmTopographyProvider.from_distribution_archive(
+                        args.distribution_archive,
+                        args.source_manifest,
+                        bounds=bounds,
+                    )
+                )
+            else:
+                if args.landsea is None:
+                    raise ValueError("--landsea is required with --topography")
+                provider = InterpolatedMsmTopographyProvider.from_raw(
+                    args.topography,
+                    args.landsea,
+                    args.source_manifest,
+                    bounds=bounds,
+                )
+            _print(
+                {
+                    "terrain_cache": provider.save(args.output),
+                    "terrain_source_type": provider.provenance[
+                        "terrain_source_type"
+                    ],
+                    "source": provider.source,
+                    "source_sha256": provider.source_sha256,
+                    "model_terrain_version": provider.provenance[
+                        "terrain_model_version"
+                    ],
+                    "distribution_chain_verified": provider.provenance[
+                        "terrain_distribution_chain_verified"
+                    ],
+                }
+            )
             return 0
         if args.command == "cache-verify":
             from .cache import verify_cache
@@ -151,11 +200,14 @@ def main(argv=None):
         if not status.selected_run_covers_request:
             _print(status)
             return 3
-        terrain_provider = (
-            GridTerrainProvider.load(args.terrain_cache)
-            if args.terrain_cache is not None
-            else None
-        )
+        if args.terrain_cache is not None:
+            terrain_provider = GridTerrainProvider.load(args.terrain_cache)
+        elif args.interpolated_terrain_cache is not None:
+            terrain_provider = InterpolatedMsmTopographyProvider.load(
+                args.interpolated_terrain_cache
+            )
+        else:
+            terrain_provider = None
         prepared = client.prepare_run(
             status.selected_run, requirements, terrain_provider=terrain_provider
         )
