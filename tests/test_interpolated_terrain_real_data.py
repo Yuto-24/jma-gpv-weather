@@ -35,32 +35,35 @@ DEFAULT_MANIFEST = (
 )
 
 
-def _source_paths():
-    topography = os.environ.get("MSM_TOPO_5K")
-    landsea = os.environ.get("MSM_LANDSEA_5K")
-    if not topography or not landsea:
-        pytest.skip(
-            "set MSM_TOPO_5K and MSM_LANDSEA_5K to the official extracted files"
-        )
+def _provider(tmp_path: Path):
     manifest = Path(os.environ.get("MSM_TOPO_MANIFEST", DEFAULT_MANIFEST))
-    return Path(topography), Path(landsea), manifest
-
-
-def _provider():
-    topography, landsea, manifest = _source_paths()
-    return InterpolatedMsmTopographyProvider.from_raw(
-        topography,
-        landsea,
-        manifest,
-        bounds=Bounds(),
+    archive = os.environ.get("MSM_TOPO_ARCHIVE")
+    if archive:
+        provider = InterpolatedMsmTopographyProvider.from_distribution_archive(
+            Path(archive), manifest, bounds=Bounds()
+        )
+        expected_chain_verified = True
+    else:
+        topography = os.environ.get("MSM_TOPO_5K")
+        landsea = os.environ.get("MSM_LANDSEA_5K")
+        if not topography or not landsea:
+            pytest.skip(
+                "set MSM_TOPO_ARCHIVE or MSM_TOPO_5K and MSM_LANDSEA_5K"
+            )
+        provider = InterpolatedMsmTopographyProvider.from_raw(
+            Path(topography), Path(landsea), manifest, bounds=Bounds()
+        )
+        expected_chain_verified = False
+    cache_path = provider.save(tmp_path / "interpolated-terrain.npz")
+    return (
+        InterpolatedMsmTopographyProvider.load(cache_path),
+        expected_chain_verified,
     )
 
 
 @pytest.mark.real_data
 def test_official_interpolated_topography_prepares_finite_kyushu_cache(tmp_path):
-    provider = _provider()
-    output = provider.save(tmp_path / "interpolated-terrain.npz")
-    restored = InterpolatedMsmTopographyProvider.load(output)
+    restored, expected_chain_verified = _provider(tmp_path)
 
     for latitude, longitude in (
         (29.7, 128.5),
@@ -74,25 +77,43 @@ def test_official_interpolated_topography_prepares_finite_kyushu_cache(tmp_path)
         assert terrain is not None and np.isfinite(terrain)
         assert land_fraction is not None and 0 <= land_fraction <= 1
 
-    assert restored.provenance["terrain_distribution_archive_sha256"] == (
+    provenance = restored.provenance
+    assert provenance["terrain_distribution_archive_sha256"] == (
         "6251a2494d8ac0ce6a26ee7c8a8dabc854010c5e9173d5b963ba4880791d242e"
     )
-    assert restored.provenance["terrain_source_sha256"] == (
+    assert provenance["terrain_inner_archive_sha256"] == (
+        "06f678659f8d01b7fc44fe3736da51d78cd398358eca51a34dedea8c9eec75bb"
+    )
+    assert provenance["terrain_source_sha256"] == (
         "6ce16ae3781399dad2d618220d81fc41938aa54d693174c33ba347ad976f5250"
     )
-    assert restored.provenance["terrain_landsea_source_sha256"] == (
+    assert provenance["terrain_landsea_source_sha256"] == (
         "322bbb1a4086174f7ac813accc391118a1fcd7d13c3135878f52e716f6870483"
     )
-    assert restored.provenance["terrain_license"] == "CC-BY-4.0"
-    assert restored.provenance["terrain_model_version"] == "2025-05-20"
-    assert restored.provenance["interpolated_from_model_grid"] is True
+    assert provenance["terrain_distribution_chain_verified"] is (
+        expected_chain_verified
+    )
+    assert provenance["terrain_artifacts_verified"] is True
+    assert provenance["terrain_license"] == "CC-BY-4.0"
+    assert provenance["terrain_license_source_file_name"].endswith("README.txt")
+    assert provenance["terrain_attribution"]
+    assert provenance["terrain_model_version"] == "2025-05-20"
+    assert provenance["terrain_model_version_basis"]
+    assert provenance["terrain_source_artifacts_modified"] is False
+    assert provenance["terrain_cache_modified"] is True
+    assert provenance["terrain_cache_serialized"] is True
+    assert provenance["interpolated_from_model_grid"] is True
+    assert provenance["terrain_source_page_url"].startswith("https://")
+    assert provenance["terrain_source_archive_url"].startswith("https://")
+    assert provenance["terrain_source_grid"]["nx"] == 481
+    assert provenance["terrain_source_grid"]["ny"] == 505
 
 
 @pytest.mark.real_data
-def test_pinned_rish_run_produces_qnh_and_topography_sensitivity():
+def test_pinned_rish_run_produces_qnh_and_topography_sensitivity(tmp_path):
     if os.environ.get("MSM_RUN_REAL_DATA") != "1":
         pytest.skip("set MSM_RUN_REAL_DATA=1 to download the pinned RISH run")
-    terrain_provider = _provider()
+    terrain_provider, expected_chain_verified = _provider(tmp_path)
     remote = RemoteFile(
         PINNED_SURFACE_NAME,
         f"{RISH_BASE}/2026/07/27/{PINNED_SURFACE_NAME}",
@@ -128,6 +149,11 @@ def test_pinned_rish_run_produces_qnh_and_topography_sensitivity():
         "interpolated_msm_gpv_topography"
     )
     assert result.provenance.trace["terrain_license"] == "CC-BY-4.0"
+    assert result.provenance.trace["terrain_distribution_chain_verified"] is (
+        expected_chain_verified
+    )
+    assert result.provenance.trace["terrain_cache_serialized"] is True
+    assert result.provenance.trace["terrain_source_manifest_sha256"]
     assert result.provenance.trace["interpolated_from_model_grid"] is True
 
     surface_values = [
@@ -154,6 +180,7 @@ def test_pinned_rish_run_produces_qnh_and_topography_sensitivity():
             "longitude": longitude,
             "elevation_m": elevation,
         },
+        "distribution_chain_verified": expected_chain_verified,
         "model_terrain_height_m": model_terrain,
         "land_fraction": result.values["terrain_land_fraction"],
         "coastal_mixed_fraction": result.provenance.trace[
