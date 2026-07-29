@@ -68,6 +68,9 @@ result = forecast.query(
 
 ```bash
 msm-weather resolve --time 2026-07-28T03:30:00Z
+msm-weather prepare \
+  --time 2026-07-28T03:30:00Z \
+  --variable aloft_wind --variable aloft_temperature
 msm-weather query-aloft \
   --time 2026-07-28T03:30:00Z \
   --lat 31.877 --lon 131.449 --altitude-m-msl 4572

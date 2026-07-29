@@ -60,6 +60,16 @@ def build_parser():
     resolve.add_argument("--time", type=_datetime, action="append", required=True)
     resolve.add_argument("--selected-run", type=_datetime)
 
+    prepare = commands.add_parser("prepare", allow_abbrev=False)
+    prepare.add_argument("--time", type=_datetime, action="append", required=True)
+    prepare.add_argument(
+        "--variable",
+        choices=[value.value for value in WeatherVariable],
+        action="append",
+        required=True,
+    )
+    prepare.add_argument("--run", type=_datetime)
+
     for name in ("query-aloft", "query-surface", "query-qnh"):
         query = commands.add_parser(name, allow_abbrev=False)
         query.add_argument("--time", type=_datetime, required=True)
@@ -104,6 +114,26 @@ def main(argv=None):
                 None if args.selected_run is None else RunId(args.selected_run),
             )
             _print(status)
+            return 0
+        if args.command == "prepare":
+            requirements = ForecastRequirements(
+                tuple(args.time),
+                frozenset(WeatherVariable(value) for value in args.variable),
+            )
+            status = client.resolve_run(
+                requirements, None if args.run is None else RunId(args.run)
+            )
+            if not status.selected_run_covers_request:
+                _print(status)
+                return 3
+            prepared = client.prepare_run(status.selected_run, requirements)
+            _print(
+                {
+                    "run_status": status,
+                    "surface_records": len(prepared.surface),
+                    "pressure_records": len(prepared.pressure),
+                }
+            )
             return 0
 
         variable = {
