@@ -8,6 +8,8 @@
 
 Issue #6のPzs取得・検証方針は維持します。この実験的採用はIssue #6を置換せず、同Issueをcloseする根拠にもなりません。
 
+この実装はPR #7を前提にせず、`develop`から独立した代替案です。Issue #6 / PR #7のPzs案は比較対象として別に残します。
+
 ## 公式配布物とmanifest
 
 正本のmetadataは[`manifests/topo-msm-5k-2025-05-20.json`](../manifests/topo-msm-5k-2025-05-20.json)です。
@@ -42,7 +44,7 @@ Issue #6のPzs取得・検証方針は維持します。この実験的採用は
 - `TOPO`：地表ジオポテンシャル高度（m）
 - `LANDSEA`：水域0、陸域1の割合
 
-専用validatorはmanifest、ファイル名、size、SHA-256、big-endianとして解釈した値域、shape、格子方向、九州被覆、有限値を確認します。`LANDSEA`は必須で、欠落時にcacheを生成しません。Pzs validatorとcache loaderはこの形式を受け入れません。
+専用validatorはmanifest、ファイル名、size、SHA-256、big-endianとして解釈した値域、shape、格子方向、九州被覆、有限値を確認します。`LANDSEA`は必須で、欠落時にcacheを生成しません。既存Pzs経路とcache loaderはこの形式を受け入れず、専用loaderとCLI selectorを使います。
 
 ## Cache生成
 
@@ -106,7 +108,7 @@ pytest -q -s -m real_data \
   tests/test_interpolated_terrain_real_data.py
 ```
 
-2026-07-30に公式配布ZIPと全内包SHA-256を再検証し、[GitHub Actions run 30469808103](https://github.com/Yuto-24/jma-msm-wind-kyushu/actions/runs/30469808103)でarchiveからcacheへのround-tripを含む2件の実データ試験が成功しました。`terrain_distribution_chain_verified=true`も確認済みです。通常テストはPython 3.10/3.11/3.12の各環境で成功し、Python 3.12では`40 passed, 4 skipped`でした。
+2026-07-30に公式配布ZIPと全内包SHA-256を再検証し、[実データ検証 run 30472505653](https://github.com/Yuto-24/jma-msm-wind-kyushu/actions/runs/30472505653)でarchiveからcacheへのround-tripを含む`2 passed`を確認しました。`terrain_distribution_chain_verified=true`も確認済みです。[通常テスト run 30472505428](https://github.com/Yuto-24/jma-msm-wind-kyushu/actions/runs/30472505428)もPython 3.10/3.11/3.12の各環境で成功し、Python 3.12では`30 passed, 2 skipped`でした。
 
 - TOPO地形高度：`31.3286265886 m`
 - LANDSEA陸比：`0.5061216165`
