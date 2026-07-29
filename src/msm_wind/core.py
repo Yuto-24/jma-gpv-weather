@@ -27,8 +27,7 @@ FILE_RE = re.compile(
 )
 
 
-class MsmError(RuntimeError):
-    pass
+from .errors import MsmError
 
 
 @dataclass(frozen=True)
