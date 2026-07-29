@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import re
+import zipfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
 
 import numpy as np
 
@@ -19,8 +21,41 @@ CACHE_SCHEMA_VERSION = 1
 TERRAIN_SOURCE_TYPE = "interpolated_msm_gpv_topography"
 ARTIFACT_TYPE = "jma_msm_gpv_interpolated_topography"
 MODEL_TERRAIN_VERSION = "2025-05-20"
+MODEL_TERRAIN_VERSION_BASIS = (
+    "JMA implementation notice: MSM changes including updated model terrain "
+    "apply from the 2025-05-20 00UTC initial run "
+    "(https://www.data.jma.go.jp/suishin/oshirase/pdf/20250509.pdf)"
+)
+TECHNICAL_REFERENCE = "https://www.data.jma.go.jp/suishin/jyouhou/pdf/648.pdf"
+DISTRIBUTION_PROVIDER = "Japan Meteorological Business Support Center (JMBSC)"
+DISTRIBUTION_PAGE_URL = "https://www.jmbsc.or.jp/jp/online/c-onlineGsd.html"
+DISTRIBUTION_ARCHIVE_URL = (
+    "https://www.jmbsc-west.jp/jp/online/online-sample/joho-sample/"
+    "chikeidata_joho648.zip"
+)
+DISTRIBUTION_ARCHIVE_FILE_NAME = "chikeidata_joho648.zip"
+DISTRIBUTION_ARCHIVE_SHA256 = (
+    "6251a2494d8ac0ce6a26ee7c8a8dabc854010c5e9173d5b963ba4880791d242e"
+)
+INNER_ARCHIVE_FILE_NAME = "202505_MSM地形データ.zip"
+INNER_ARCHIVE_SHA256 = (
+    "06f678659f8d01b7fc44fe3736da51d78cd398358eca51a34dedea8c9eec75bb"
+)
+INNER_DIRECTORY = "202505_MSM地形データ"
 TOPO_FILE_NAME = "TOPO.MSM_5K"
+TOPO_SHA256 = "6ce16ae3781399dad2d618220d81fc41938aa54d693174c33ba347ad976f5250"
 LANDSEA_FILE_NAME = "LANDSEA.MSM_5K"
+LANDSEA_SHA256 = "322bbb1a4086174f7ac813accc391118a1fcd7d13c3135878f52e716f6870483"
+LICENSE_SPDX = "CC-BY-4.0"
+LICENSE_URL = "https://creativecommons.org/licenses/by/4.0/"
+LICENSE_SOURCE_FILE_NAME = "202505_MSM地形データ/README.txt"
+LICENSE_SOURCE_DATE = "令和7年4月"
+LICENSE_ISSUER = "気象庁"
+ATTRIBUTION = (
+    "東京大学准教授 山崎大氏作成の MERIT-DEM を気象庁が低解像度化した"
+    "地形データ（CC BY 4.0）。生成する cache は九州範囲への切り出しと "
+    "NPZ 圧縮を行った加工物です。"
+)
 GRID_NX = 481
 GRID_NY = 505
 GRID_POINTS = GRID_NX * GRID_NY
@@ -29,6 +64,7 @@ FIRST_LATITUDE = 47.6
 FIRST_LONGITUDE = 120.0
 LATITUDE_STEP = -0.05
 LONGITUDE_STEP = 0.0625
+STORAGE_ORDER = "row-major:north-to-south:west-to-east"
 COASTAL_LAND_FRACTION_MIN = 0.05
 COASTAL_LAND_FRACTION_MAX = 0.95
 
@@ -79,6 +115,20 @@ def _validate_sha256(value: str, field: str) -> None:
         )
 
 
+def _verify_bytes(
+    raw: bytes, expected_sha256: str, label: str, expected_size: int | None = None
+) -> None:
+    if expected_size is not None and len(raw) != expected_size:
+        raise TerrainValidationError(
+            f"{label} size mismatch: expected {expected_size}, got {len(raw)}"
+        )
+    actual_sha256 = hashlib.sha256(raw).hexdigest()
+    if actual_sha256 != expected_sha256:
+        raise TerrainValidationError(
+            f"{label} SHA-256 mismatch: expected {expected_sha256}, got {actual_sha256}"
+        )
+
+
 @dataclass(frozen=True)
 class InterpolatedTerrainSourceManifest:
     distribution_provider: str
@@ -96,6 +146,9 @@ class InterpolatedTerrainSourceManifest:
     landsea_size_bytes: int
     license_spdx: str
     license_url: str
+    license_source_file_name: str
+    license_source_date: str
+    license_issuer: str
     attribution: str
     source_modified: bool
     interpolated_from_model_grid: bool
@@ -131,7 +184,9 @@ class InterpolatedTerrainSourceManifest:
         root = _required_mapping(document, "manifest")
         distribution = _required_mapping(root.get("distribution"), "distribution")
         artifacts = _required_mapping(root.get("artifacts"), "artifacts")
-        topography = _required_mapping(artifacts.get("topography"), "artifacts.topography")
+        topography = _required_mapping(
+            artifacts.get("topography"), "artifacts.topography"
+        )
         landsea = _required_mapping(artifacts.get("landsea"), "artifacts.landsea")
         license_data = _required_mapping(root.get("license"), "license")
         processing = _required_mapping(root.get("processing"), "processing")
@@ -196,6 +251,15 @@ class InterpolatedTerrainSourceManifest:
             ),
             license_spdx=_required_text(license_data.get("spdx"), "license.spdx"),
             license_url=_required_text(license_data.get("url"), "license.url"),
+            license_source_file_name=_required_text(
+                license_data.get("source_file_name"), "license.source_file_name"
+            ),
+            license_source_date=_required_text(
+                license_data.get("source_date"), "license.source_date"
+            ),
+            license_issuer=_required_text(
+                license_data.get("issuer"), "license.issuer"
+            ),
             attribution=_required_text(
                 license_data.get("attribution"), "license.attribution"
             ),
@@ -233,45 +297,34 @@ class InterpolatedTerrainSourceManifest:
         return manifest
 
     def validate(self) -> None:
-        if self.schema_version != SOURCE_MANIFEST_SCHEMA_VERSION:
-            raise TerrainValidationError(
-                f"unsupported interpolated terrain manifest schema {self.schema_version}"
-            )
-        if self.artifact_type != ARTIFACT_TYPE:
-            raise TerrainValidationError(f"artifact_type must be {ARTIFACT_TYPE}")
-        if self.terrain_source_type != TERRAIN_SOURCE_TYPE:
-            raise TerrainValidationError(
-                f"terrain_source_type must be {TERRAIN_SOURCE_TYPE}"
-            )
-        if self.model_terrain_version != MODEL_TERRAIN_VERSION:
-            raise TerrainValidationError(
-                f"model_terrain_version must be {MODEL_TERRAIN_VERSION}"
-            )
-        if "JMBSC" not in self.distribution_provider.upper():
-            raise TerrainValidationError("distribution.provider must identify JMBSC")
-        for field, url in (
-            ("distribution.page_url", self.distribution_page_url),
-            ("distribution.archive_url", self.distribution_archive_url),
-            ("license.url", self.license_url),
-            ("technical_reference", self.technical_reference),
-        ):
-            parsed = urlparse(url)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise TerrainValidationError(f"{field} must be an HTTP(S) URL")
-        for field, digest in (
-            ("distribution.archive_sha256", self.distribution_archive_sha256),
-            ("distribution.inner_archive_sha256", self.inner_archive_sha256),
-            ("artifacts.topography.sha256", self.topography_sha256),
-            ("artifacts.landsea.sha256", self.landsea_sha256),
-        ):
-            _validate_sha256(digest, field)
         expected = {
-            "distribution_archive_file_name": "chikeidata_joho648.zip",
-            "inner_archive_file_name": "202505_MSM地形データ.zip",
+            "schema_version": SOURCE_MANIFEST_SCHEMA_VERSION,
+            "artifact_type": ARTIFACT_TYPE,
+            "terrain_source_type": TERRAIN_SOURCE_TYPE,
+            "model_terrain_version": MODEL_TERRAIN_VERSION,
+            "model_terrain_version_basis": MODEL_TERRAIN_VERSION_BASIS,
+            "technical_reference": TECHNICAL_REFERENCE,
+            "distribution_provider": DISTRIBUTION_PROVIDER,
+            "distribution_page_url": DISTRIBUTION_PAGE_URL,
+            "distribution_archive_url": DISTRIBUTION_ARCHIVE_URL,
+            "distribution_archive_file_name": DISTRIBUTION_ARCHIVE_FILE_NAME,
+            "distribution_archive_sha256": DISTRIBUTION_ARCHIVE_SHA256,
+            "inner_archive_file_name": INNER_ARCHIVE_FILE_NAME,
+            "inner_archive_sha256": INNER_ARCHIVE_SHA256,
             "topography_file_name": TOPO_FILE_NAME,
-            "landsea_file_name": LANDSEA_FILE_NAME,
+            "topography_sha256": TOPO_SHA256,
             "topography_size_bytes": FILE_SIZE_BYTES,
+            "landsea_file_name": LANDSEA_FILE_NAME,
+            "landsea_sha256": LANDSEA_SHA256,
             "landsea_size_bytes": FILE_SIZE_BYTES,
+            "license_spdx": LICENSE_SPDX,
+            "license_url": LICENSE_URL,
+            "license_source_file_name": LICENSE_SOURCE_FILE_NAME,
+            "license_source_date": LICENSE_SOURCE_DATE,
+            "license_issuer": LICENSE_ISSUER,
+            "attribution": ATTRIBUTION,
+            "source_modified": False,
+            "interpolated_from_model_grid": True,
             "grid_nx": GRID_NX,
             "grid_ny": GRID_NY,
             "first_latitude": FIRST_LATITUDE,
@@ -280,15 +333,13 @@ class InterpolatedTerrainSourceManifest:
             "longitude_step": LONGITUDE_STEP,
             "encoding": "IEEE754 float32",
             "byte_order": "big-endian",
-            "storage_order": "row-major:north-to-south:west-to-east",
-            "license_spdx": "CC-BY-4.0",
-            "source_modified": False,
-            "interpolated_from_model_grid": True,
+            "storage_order": STORAGE_ORDER,
         }
         for field, expected_value in expected.items():
             if getattr(self, field) != expected_value:
                 raise TerrainValidationError(
-                    f"{field} must be {expected_value!r}; got {getattr(self, field)!r}"
+                    f"{field} must match the pinned official release: "
+                    f"expected {expected_value!r}, got {getattr(self, field)!r}"
                 )
 
     def verify_artifacts(
@@ -311,7 +362,11 @@ class InterpolatedTerrainSourceManifest:
 
     @staticmethod
     def _verify_artifact(
-        path: Path, expected_name: str, expected_sha256: str, expected_size: int, label: str
+        path: Path,
+        expected_name: str,
+        expected_sha256: str,
+        expected_size: int,
+        label: str,
     ) -> None:
         if path.name != expected_name:
             raise TerrainValidationError(
@@ -331,10 +386,68 @@ class InterpolatedTerrainSourceManifest:
                 f"{label} SHA-256 mismatch: expected {expected_sha256}, got {actual_sha256}"
             )
 
-    def cache_metadata(self, manifest_sha256: str) -> dict:
+    def read_distribution_archive(
+        self, archive_path: str | Path
+    ) -> tuple[bytes, bytes]:
+        archive = Path(archive_path)
+        if archive.name != self.distribution_archive_file_name:
+            raise TerrainValidationError(
+                "distribution archive filename mismatch: expected "
+                f"{self.distribution_archive_file_name}, got {archive.name}"
+            )
+        try:
+            archive_bytes = archive.read_bytes()
+        except OSError as exc:
+            raise TerrainValidationError(
+                f"cannot read terrain distribution archive {archive}: {exc}"
+            ) from exc
+        _verify_bytes(
+            archive_bytes,
+            self.distribution_archive_sha256,
+            "distribution archive",
+        )
+        try:
+            with zipfile.ZipFile(io.BytesIO(archive_bytes)) as outer:
+                inner_bytes = outer.read(self.inner_archive_file_name)
+        except (zipfile.BadZipFile, KeyError, OSError) as exc:
+            raise TerrainValidationError(
+                f"cannot read inner terrain archive: {exc}"
+            ) from exc
+        _verify_bytes(inner_bytes, self.inner_archive_sha256, "inner archive")
+        try:
+            with zipfile.ZipFile(io.BytesIO(inner_bytes)) as inner:
+                topography_bytes = inner.read(
+                    f"{INNER_DIRECTORY}/{self.topography_file_name}"
+                )
+                landsea_bytes = inner.read(
+                    f"{INNER_DIRECTORY}/{self.landsea_file_name}"
+                )
+        except (zipfile.BadZipFile, KeyError, OSError) as exc:
+            raise TerrainValidationError(
+                f"cannot read terrain artifacts from inner archive: {exc}"
+            ) from exc
+        _verify_bytes(
+            topography_bytes,
+            self.topography_sha256,
+            "topography",
+            self.topography_size_bytes,
+        )
+        _verify_bytes(
+            landsea_bytes,
+            self.landsea_sha256,
+            "landsea",
+            self.landsea_size_bytes,
+        )
+        return topography_bytes, landsea_bytes
+
+    def cache_metadata(
+        self, manifest_sha256: str, distribution_chain_verified: bool
+    ) -> dict:
         return {
             "terrain_source_type": TERRAIN_SOURCE_TYPE,
-            "terrain_source_name": "JMA MSM GPV interpolated model topography (TOPO.MSM_5K)",
+            "terrain_source_name": (
+                "JMA MSM GPV interpolated model topography (TOPO.MSM_5K)"
+            ),
             "terrain_source_provider": self.distribution_provider,
             "terrain_source_page_url": self.distribution_page_url,
             "terrain_source_archive_url": self.distribution_archive_url,
@@ -347,14 +460,20 @@ class InterpolatedTerrainSourceManifest:
             "terrain_landsea_source_file_name": self.landsea_file_name,
             "terrain_landsea_source_sha256": self.landsea_sha256,
             "terrain_source_manifest_sha256": manifest_sha256,
+            "terrain_distribution_chain_verified": distribution_chain_verified,
+            "terrain_artifacts_verified": True,
+            "terrain_distribution_validation": (
+                "pinned official archive digests and direct artifact SHA-256"
+            ),
             "terrain_model_version": self.model_terrain_version,
             "terrain_model_version_basis": self.model_terrain_version_basis,
             "terrain_license": self.license_spdx,
             "terrain_license_url": self.license_url,
+            "terrain_license_source_file_name": self.license_source_file_name,
+            "terrain_license_source_date": self.license_source_date,
+            "terrain_license_issuer": self.license_issuer,
             "terrain_attribution": self.attribution,
             "terrain_source_artifacts_modified": self.source_modified,
-            "terrain_cache_modified": True,
-            "terrain_cache_modification": "Kyushu subset with one-cell interpolation halo; NPZ compression",
             "interpolated_from_model_grid": self.interpolated_from_model_grid,
             "terrain_interpolation_method": "regular-latlon-bilinear",
             "terrain_technical_reference": self.technical_reference,
@@ -377,19 +496,15 @@ class InterpolatedTerrainSourceManifest:
         }
 
 
-def _read_big_endian_grid(path: str | Path) -> np.ndarray:
-    try:
-        raw = Path(path).read_bytes()
-    except OSError as exc:
-        raise TerrainValidationError(f"cannot read terrain grid {path}: {exc}") from exc
+def _read_big_endian_grid(raw: bytes, label: str) -> np.ndarray:
     if len(raw) != FILE_SIZE_BYTES:
         raise TerrainValidationError(
-            f"terrain grid size mismatch: expected {FILE_SIZE_BYTES}, got {len(raw)}"
+            f"{label} size mismatch: expected {FILE_SIZE_BYTES}, got {len(raw)}"
         )
     values = np.frombuffer(raw, dtype=">f4")
     if values.size != GRID_POINTS:
         raise TerrainValidationError(
-            f"terrain grid must contain {GRID_POINTS} float32 values"
+            f"{label} must contain {GRID_POINTS} float32 values"
         )
     return values.astype(np.float64).reshape(GRID_NY, GRID_NX)
 
@@ -421,27 +536,42 @@ def _source_axes() -> tuple[np.ndarray, np.ndarray]:
     return latitudes, longitudes
 
 
+def _enclosing_slice(axis: np.ndarray, lower: float, upper: float) -> slice:
+    ascending = axis if axis[0] < axis[-1] else axis[::-1]
+    lower_index = int(np.searchsorted(ascending, lower, side="right")) - 1
+    upper_index = int(np.searchsorted(ascending, upper, side="left"))
+    lower_index = max(lower_index, 0)
+    upper_index = min(upper_index, len(ascending) - 1)
+    halo_lower = max(lower_index - 1, 0)
+    halo_upper = min(upper_index + 1, len(ascending) - 1)
+    if axis[0] < axis[-1]:
+        first, last = halo_lower, halo_upper
+    else:
+        first = len(axis) - 1 - halo_upper
+        last = len(axis) - 1 - halo_lower
+    return slice(first, last + 1)
+
+
 def _subset_with_halo(
     topography: np.ndarray, land_fraction: np.ndarray, bounds: Bounds
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     latitudes, longitudes = _source_axes()
-    rows = np.flatnonzero(
-        (latitudes >= bounds.lat_min) & (latitudes <= bounds.lat_max)
-    )
-    columns = np.flatnonzero(
-        (longitudes >= bounds.lon_min) & (longitudes <= bounds.lon_max)
-    )
-    if rows.size == 0 or columns.size == 0:
+    if bounds.lat_min > bounds.lat_max or bounds.lon_min > bounds.lon_max:
+        raise TerrainValidationError("requested terrain bounds are invalid")
+    if (
+        bounds.lat_min < float(np.min(latitudes))
+        or bounds.lat_max > float(np.max(latitudes))
+        or bounds.lon_min < float(np.min(longitudes))
+        or bounds.lon_max > float(np.max(longitudes))
+    ):
         raise TerrainValidationError("TOPO.MSM_5K does not cover requested bounds")
-    row_start = max(int(rows[0]) - 1, 0)
-    row_stop = min(int(rows[-1]) + 2, GRID_NY)
-    column_start = max(int(columns[0]) - 1, 0)
-    column_stop = min(int(columns[-1]) + 2, GRID_NX)
+    rows = _enclosing_slice(latitudes, bounds.lat_min, bounds.lat_max)
+    columns = _enclosing_slice(longitudes, bounds.lon_min, bounds.lon_max)
     return (
-        topography[row_start:row_stop, column_start:column_stop],
-        land_fraction[row_start:row_stop, column_start:column_stop],
-        latitudes[row_start:row_stop],
-        longitudes[column_start:column_stop],
+        topography[rows, columns],
+        land_fraction[rows, columns],
+        latitudes[rows],
+        longitudes[columns],
     )
 
 
@@ -463,6 +593,44 @@ def _axis_bracket(axis: np.ndarray, target: float):
     return indices, (float(ascending[lower]), float(ascending[upper]))
 
 
+def _subset_metadata(
+    metadata: Mapping,
+    bounds: Bounds,
+    topography: np.ndarray,
+    latitudes: np.ndarray,
+    longitudes: np.ndarray,
+) -> dict:
+    subset_modified = topography.shape != (GRID_NY, GRID_NX)
+    subset_description = (
+        "Subset to requested bounds with one-cell interpolation halo"
+        if subset_modified
+        else "none"
+    )
+    return {
+        **dict(metadata),
+        "terrain_subset_requested_bounds": {
+            "lat_min": bounds.lat_min,
+            "lat_max": bounds.lat_max,
+            "lon_min": bounds.lon_min,
+            "lon_max": bounds.lon_max,
+        },
+        "terrain_subset_grid": {
+            "shape": [int(value) for value in topography.shape],
+            "first_latitude": float(latitudes[0]),
+            "last_latitude": float(latitudes[-1]),
+            "first_longitude": float(longitudes[0]),
+            "last_longitude": float(longitudes[-1]),
+            "latitude_step": LATITUDE_STEP,
+            "longitude_step": LONGITUDE_STEP,
+        },
+        "terrain_subset_modified": subset_modified,
+        "terrain_subset_modification": subset_description,
+        "terrain_cache_modified": subset_modified,
+        "terrain_cache_modification": subset_description,
+        "terrain_cache_serialized": False,
+    }
+
+
 @dataclass
 class InterpolatedMsmTopographyProvider:
     topography_m: np.ndarray
@@ -470,6 +638,27 @@ class InterpolatedMsmTopographyProvider:
     latitudes: np.ndarray
     longitudes: np.ndarray
     metadata: Mapping
+
+    @classmethod
+    def from_distribution_archive(
+        cls,
+        archive_path: str | Path,
+        source_manifest: str | Path,
+        bounds: Bounds = Bounds(),
+    ) -> InterpolatedMsmTopographyProvider:
+        manifest_path = Path(source_manifest)
+        manifest = InterpolatedTerrainSourceManifest.load(manifest_path)
+        topography_bytes, landsea_bytes = manifest.read_distribution_archive(
+            archive_path
+        )
+        return cls._from_source_bytes(
+            topography_bytes,
+            landsea_bytes,
+            manifest,
+            manifest_path,
+            bounds,
+            distribution_chain_verified=True,
+        )
 
     @classmethod
     def from_raw(
@@ -482,15 +671,44 @@ class InterpolatedMsmTopographyProvider:
         manifest_path = Path(source_manifest)
         manifest = InterpolatedTerrainSourceManifest.load(manifest_path)
         manifest.verify_artifacts(topography_path, landsea_path)
-        topography = _read_big_endian_grid(topography_path)
-        land_fraction = _read_big_endian_grid(landsea_path)
+        try:
+            topography_bytes = Path(topography_path).read_bytes()
+            landsea_bytes = Path(landsea_path).read_bytes()
+        except OSError as exc:
+            raise TerrainValidationError(f"cannot read terrain artifacts: {exc}") from exc
+        return cls._from_source_bytes(
+            topography_bytes,
+            landsea_bytes,
+            manifest,
+            manifest_path,
+            bounds,
+            distribution_chain_verified=False,
+        )
+
+    @classmethod
+    def _from_source_bytes(
+        cls,
+        topography_bytes: bytes,
+        landsea_bytes: bytes,
+        manifest: InterpolatedTerrainSourceManifest,
+        manifest_path: Path,
+        bounds: Bounds,
+        distribution_chain_verified: bool,
+    ) -> InterpolatedMsmTopographyProvider:
+        topography = _read_big_endian_grid(topography_bytes, "topography")
+        land_fraction = _read_big_endian_grid(landsea_bytes, "landsea")
         _validate_source_values(topography, land_fraction)
         subset = _subset_with_halo(topography, land_fraction, bounds)
+        metadata = manifest.cache_metadata(
+            sha256_file(manifest_path), distribution_chain_verified
+        )
         provider = cls(
             *subset,
-            metadata=manifest.cache_metadata(sha256_file(manifest_path)),
+            metadata=_subset_metadata(
+                metadata, bounds, subset[0], subset[2], subset[3]
+            ),
         )
-        provider._validate_cache()
+        provider._validate_cache(require_serialized=False)
         return provider
 
     @classmethod
@@ -511,10 +729,10 @@ class InterpolatedMsmTopographyProvider:
             raise TerrainValidationError(
                 f"cannot load interpolated terrain cache {path}: {exc}"
             ) from exc
-        provider._validate_cache()
+        provider._validate_cache(require_serialized=True)
         return provider
 
-    def _validate_cache(self) -> None:
+    def _validate_cache(self, require_serialized: bool) -> None:
         topography = np.asarray(self.topography_m, dtype=float)
         land_fraction = np.asarray(self.land_fraction, dtype=float)
         latitudes = np.asarray(self.latitudes, dtype=float)
@@ -525,7 +743,10 @@ class InterpolatedMsmTopographyProvider:
             raise TerrainValidationError("interpolated terrain cache must be a 2-D grid")
         if topography.shape != (len(latitudes), len(longitudes)):
             raise TerrainValidationError("interpolated terrain cache axes do not match data")
-        if not all(np.isfinite(value).all() for value in (topography, land_fraction, latitudes, longitudes)):
+        if not all(
+            np.isfinite(value).all()
+            for value in (topography, land_fraction, latitudes, longitudes)
+        ):
             raise TerrainValidationError("interpolated terrain cache contains non-finite values")
         if not np.all(np.diff(latitudes) < 0) or not np.all(np.diff(longitudes) > 0):
             raise TerrainValidationError(
@@ -537,39 +758,162 @@ class InterpolatedMsmTopographyProvider:
             raise TerrainValidationError("interpolated terrain cache grid spacing is invalid")
         if np.min(land_fraction) < -1e-6 or np.max(land_fraction) > 1 + 1e-6:
             raise TerrainValidationError("cached LANDSEA values must be between 0 and 1")
-        if self.metadata.get("terrain_source_type") != TERRAIN_SOURCE_TYPE:
-            raise TerrainValidationError(
-                "cache is not an interpolated MSM GPV topography cache"
-            )
-        if self.metadata.get("terrain_model_version") != MODEL_TERRAIN_VERSION:
-            raise TerrainValidationError("interpolated terrain cache model version is unsupported")
-        if self.metadata.get("terrain_license") != "CC-BY-4.0":
-            raise TerrainValidationError("interpolated terrain cache must retain CC BY 4.0")
-        if self.metadata.get("interpolated_from_model_grid") is not True:
-            raise TerrainValidationError("cache must identify model-grid interpolation")
+
+        exact_metadata = {
+            "terrain_source_type": TERRAIN_SOURCE_TYPE,
+            "terrain_source_name": (
+                "JMA MSM GPV interpolated model topography (TOPO.MSM_5K)"
+            ),
+            "terrain_source_provider": DISTRIBUTION_PROVIDER,
+            "terrain_source_page_url": DISTRIBUTION_PAGE_URL,
+            "terrain_source_archive_url": DISTRIBUTION_ARCHIVE_URL,
+            "terrain_distribution_archive_file_name": DISTRIBUTION_ARCHIVE_FILE_NAME,
+            "terrain_distribution_archive_sha256": DISTRIBUTION_ARCHIVE_SHA256,
+            "terrain_inner_archive_file_name": INNER_ARCHIVE_FILE_NAME,
+            "terrain_inner_archive_sha256": INNER_ARCHIVE_SHA256,
+            "terrain_source_file_name": TOPO_FILE_NAME,
+            "terrain_source_sha256": TOPO_SHA256,
+            "terrain_landsea_source_file_name": LANDSEA_FILE_NAME,
+            "terrain_landsea_source_sha256": LANDSEA_SHA256,
+            "terrain_distribution_validation": (
+                "pinned official archive digests and direct artifact SHA-256"
+            ),
+            "terrain_model_version": MODEL_TERRAIN_VERSION,
+            "terrain_model_version_basis": MODEL_TERRAIN_VERSION_BASIS,
+            "terrain_license": LICENSE_SPDX,
+            "terrain_license_url": LICENSE_URL,
+            "terrain_license_source_file_name": LICENSE_SOURCE_FILE_NAME,
+            "terrain_license_source_date": LICENSE_SOURCE_DATE,
+            "terrain_license_issuer": LICENSE_ISSUER,
+            "terrain_attribution": ATTRIBUTION,
+            "terrain_source_artifacts_modified": False,
+            "interpolated_from_model_grid": True,
+            "terrain_interpolation_method": "regular-latlon-bilinear",
+            "terrain_technical_reference": TECHNICAL_REFERENCE,
+            "terrain_coastal_land_fraction_range": [
+                COASTAL_LAND_FRACTION_MIN,
+                COASTAL_LAND_FRACTION_MAX,
+            ],
+        }
+        for field, expected in exact_metadata.items():
+            if self.metadata.get(field) != expected:
+                raise TerrainValidationError(
+                    f"interpolated terrain cache {field} is missing or invalid"
+                )
         for field in (
+            "terrain_source_manifest_sha256",
             "terrain_distribution_archive_sha256",
             "terrain_inner_archive_sha256",
             "terrain_source_sha256",
             "terrain_landsea_source_sha256",
-            "terrain_source_manifest_sha256",
         ):
             _validate_sha256(str(self.metadata.get(field, "")), field)
+        for field in (
+            "terrain_distribution_chain_verified",
+            "terrain_artifacts_verified",
+            "terrain_subset_modified",
+            "terrain_cache_modified",
+            "terrain_cache_serialized",
+        ):
+            _required_bool(self.metadata.get(field), field)
+        if self.metadata.get("terrain_artifacts_verified") is not True:
+            raise TerrainValidationError("terrain artifacts must be verified")
+
+        source_grid = _required_mapping(
+            self.metadata.get("terrain_source_grid"), "terrain_source_grid"
+        )
+        expected_source_grid = {
+            "projection": "regular_latitude_longitude",
+            "nx": GRID_NX,
+            "ny": GRID_NY,
+            "first_latitude": FIRST_LATITUDE,
+            "first_longitude": FIRST_LONGITUDE,
+            "latitude_step": LATITUDE_STEP,
+            "longitude_step": LONGITUDE_STEP,
+            "encoding": "IEEE754 float32",
+            "byte_order": "big-endian",
+            "storage_order": STORAGE_ORDER,
+        }
+        if dict(source_grid) != expected_source_grid:
+            raise TerrainValidationError("terrain source grid provenance is invalid")
+
+        requested = _required_mapping(
+            self.metadata.get("terrain_subset_requested_bounds"),
+            "terrain_subset_requested_bounds",
+        )
+        for field in ("lat_min", "lat_max", "lon_min", "lon_max"):
+            _required_float(requested.get(field), f"terrain_subset_requested_bounds.{field}")
+        if (
+            requested["lat_min"] > requested["lat_max"]
+            or requested["lon_min"] > requested["lon_max"]
+            or requested["lat_min"] < float(np.min(latitudes))
+            or requested["lat_max"] > float(np.max(latitudes))
+            or requested["lon_min"] < float(np.min(longitudes))
+            or requested["lon_max"] > float(np.max(longitudes))
+        ):
+            raise TerrainValidationError("terrain subset does not cover requested bounds")
+
+        subset_grid = _required_mapping(
+            self.metadata.get("terrain_subset_grid"), "terrain_subset_grid"
+        )
+        expected_subset_grid = {
+            "shape": [int(value) for value in topography.shape],
+            "first_latitude": float(latitudes[0]),
+            "last_latitude": float(latitudes[-1]),
+            "first_longitude": float(longitudes[0]),
+            "last_longitude": float(longitudes[-1]),
+            "latitude_step": LATITUDE_STEP,
+            "longitude_step": LONGITUDE_STEP,
+        }
+        if dict(subset_grid) != expected_subset_grid:
+            raise TerrainValidationError("terrain subset grid metadata does not match arrays")
+        _required_text(
+            self.metadata.get("terrain_subset_modification"),
+            "terrain_subset_modification",
+        )
+        _required_text(
+            self.metadata.get("terrain_cache_modification"),
+            "terrain_cache_modification",
+        )
+
+        if require_serialized:
+            if self.metadata.get("cache_schema_version") != CACHE_SCHEMA_VERSION:
+                raise TerrainValidationError("unsupported interpolated terrain cache schema")
+            if self.metadata.get("terrain_cache_serialized") is not True:
+                raise TerrainValidationError("terrain cache serialization provenance is missing")
+            if self.metadata.get("terrain_cache_serialization") != "NPZ compression":
+                raise TerrainValidationError("terrain cache serialization is invalid")
+            cache_grid = _required_mapping(
+                self.metadata.get("cache_grid"), "cache_grid"
+            )
+            if dict(cache_grid) != expected_subset_grid:
+                raise TerrainValidationError("cache grid metadata does not match arrays")
 
     def save(self, path: str | Path) -> Path:
-        self._validate_cache()
+        self._validate_cache(require_serialized=False)
         destination = Path(path)
         destination.parent.mkdir(parents=True, exist_ok=True)
+        operations = []
+        if self.metadata.get("terrain_subset_modified"):
+            operations.append(str(self.metadata["terrain_subset_modification"]))
+        operations.append("NPZ compression")
+        cache_grid = {
+            "shape": [int(value) for value in self.topography_m.shape],
+            "first_latitude": float(self.latitudes[0]),
+            "last_latitude": float(self.latitudes[-1]),
+            "first_longitude": float(self.longitudes[0]),
+            "last_longitude": float(self.longitudes[-1]),
+            "latitude_step": LATITUDE_STEP,
+            "longitude_step": LONGITUDE_STEP,
+        }
         metadata = {
             **dict(self.metadata),
             "cache_schema_version": CACHE_SCHEMA_VERSION,
-            "cache_grid": {
-                "shape": [int(value) for value in self.topography_m.shape],
-                "first_latitude": float(self.latitudes[0]),
-                "first_longitude": float(self.longitudes[0]),
-                "latitude_step": LATITUDE_STEP,
-                "longitude_step": LONGITUDE_STEP,
-            },
+            "cache_grid": cache_grid,
+            "terrain_cache_modified": True,
+            "terrain_cache_modification": "; ".join(operations),
+            "terrain_cache_serialized": True,
+            "terrain_cache_serialization": "NPZ compression",
         }
         temporary = destination.with_suffix(destination.suffix + ".tmp")
         with temporary.open("wb") as handle:
@@ -595,6 +939,7 @@ class InterpolatedMsmTopographyProvider:
             encoding="utf-8",
         )
         sidecar_temporary.replace(sidecar)
+        self.metadata = metadata
         return destination
 
     def _interpolate(self, values: np.ndarray, latitude: float, longitude: float):
