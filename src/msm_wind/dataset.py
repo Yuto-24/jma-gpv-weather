@@ -264,6 +264,10 @@ class PreparedForecast:
                 reason_code="MODEL_TERRAIN_UNAVAILABLE",
                 warnings=("ESTIMATED_QNH_NOT_OFFICIAL", "NOT_FOR_OPERATIONAL_USE"),
             )
+        terrain_warnings = self._terrain_warnings(query.latitude, query.longitude)
+        terrain_diagnostics = self._terrain_diagnostics(
+            query.latitude, query.longitude
+        )
         terrain = self.terrain_provider(query.latitude, query.longitude)
         fields = [
             self._surface_scalar(name, query.latitude, query.longitude, query.valid_time)
@@ -274,31 +278,47 @@ class PreparedForecast:
                 Availability.UNAVAILABLE,
                 "estimated_qnh",
                 reason_code="QNH_INPUT_UNAVAILABLE",
-                warnings=("ESTIMATED_QNH_NOT_OFFICIAL", "NOT_FOR_OPERATIONAL_USE"),
+                warnings=(
+                    "ESTIMATED_QNH_NOT_OFFICIAL",
+                    "NOT_FOR_OPERATIONAL_USE",
+                    *terrain_warnings,
+                ),
+                provenance=self._provenance(
+                    "bilinear,time-linear,hypsometric-isa-v1",
+                    {**self._terrain_provenance(), **terrain_diagnostics},
+                ),
             )
         estimate = estimate_qnh(fields[0][0], fields[1][0], fields[2][0], terrain, query.elevation_msl_m)
         mslp = self._surface_scalar("mslp", query.latitude, query.longitude, query.valid_time)
-        warnings = ["ESTIMATED_QNH_NOT_OFFICIAL", "NOT_FOR_OPERATIONAL_USE"]
+        warnings = [
+            "ESTIMATED_QNH_NOT_OFFICIAL",
+            "NOT_FOR_OPERATIONAL_USE",
+            *terrain_warnings,
+        ]
         if abs(estimate.terrain_difference_m) > 100:
             warnings.append("MODEL_TERRAIN_DIFFERENCE")
+        values = {
+            "label": "MSM-derived estimated QNH",
+            "qnh_pa": estimate.qnh_pa,
+            "qnh_hpa": estimate.qnh_pa / 100,
+            "station_pressure_pa": estimate.station_pressure_pa,
+            "model_terrain_height_m": terrain,
+            "requested_elevation_msl_m": query.elevation_msl_m,
+            "terrain_difference_m": estimate.terrain_difference_m,
+            "diagnostic_mslp_pa": None if mslp is None else mslp[0],
+            "method_version": estimate.method_version,
+        }
+        land_fraction = terrain_diagnostics.get("terrain_land_fraction")
+        if land_fraction is not None:
+            values["terrain_land_fraction"] = float(land_fraction)
         return WeatherResult(
             Availability.AVAILABLE,
             "estimated_qnh",
-            {
-                "label": "MSM-derived estimated QNH",
-                "qnh_pa": estimate.qnh_pa,
-                "qnh_hpa": estimate.qnh_pa / 100,
-                "station_pressure_pa": estimate.station_pressure_pa,
-                "model_terrain_height_m": terrain,
-                "requested_elevation_msl_m": query.elevation_msl_m,
-                "terrain_difference_m": estimate.terrain_difference_m,
-                "diagnostic_mslp_pa": None if mslp is None else mslp[0],
-                "method_version": estimate.method_version,
-            },
-            warnings=tuple(warnings),
+            values,
+            warnings=tuple(dict.fromkeys(warnings)),
             provenance=self._provenance(
                 "bilinear,time-linear,hypsometric-isa-v1",
-                self._terrain_provenance(),
+                {**self._terrain_provenance(), **terrain_diagnostics},
             ),
         )
 
@@ -312,3 +332,19 @@ class PreparedForecast:
                 self.terrain_provider, "source_sha256", None
             ),
         }
+
+    def _terrain_diagnostics(self, latitude: float, longitude: float) -> dict:
+        diagnostics = getattr(self.terrain_provider, "qnh_diagnostics", None)
+        if callable(diagnostics):
+            result = diagnostics(latitude, longitude)
+            if isinstance(result, Mapping):
+                return dict(result)
+        return {}
+
+    def _terrain_warnings(self, latitude: float, longitude: float) -> tuple[str, ...]:
+        warnings = getattr(self.terrain_provider, "qnh_warnings", None)
+        if callable(warnings):
+            result = warnings(latitude, longitude)
+            if isinstance(result, Sequence) and not isinstance(result, (str, bytes)):
+                return tuple(str(value) for value in result)
+        return ()
