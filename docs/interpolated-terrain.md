@@ -46,15 +46,16 @@ Issue #6のPzs取得・検証方針は維持します。この実験的採用は
 
 ## Cache生成
 
-配布ZIPを手動で取得・展開し、内包する2ファイルを指定します。
+公式配布ZIPをそのまま指定します。outer ZIP、inner ZIP、TOPO、LANDSEAの4段階のSHA-256を検証してからcacheを生成します。
 
 ```bash
 msm-weather prepare-interpolated-terrain \
-  --topography /path/to/TOPO.MSM_5K \
-  --landsea /path/to/LANDSEA.MSM_5K \
+  --distribution-archive /path/to/chikeidata_joho648.zip \
   --source-manifest manifests/topo-msm-5k-2025-05-20.json \
   --output data/static/interpolated-model-terrain/v1/terrain.npz
 ```
+
+展開済みの`TOPO.MSM_5K`と`LANDSEA.MSM_5K`を指定するraw modeもあります。この場合も各artifactのSHA-256は検証しますが、outer/inner archive chainは未検証としてprovenanceへ記録します。
 
 cacheは九州範囲と補間用の1格子haloを切り出してNPZ圧縮する加工物です。NPZ metadataとJSON sidecarには、次を含む完全なprovenanceを保存します。
 
@@ -99,14 +100,13 @@ Python APIでもproviderを明示的に生成またはloadし、`MsmClient.prepa
 次のopt-in試験は、公式TOPO/LANDSEAとRISH固定Run `2026-07-27 12Z / Lsurf FH00-15`を使い、宮崎空港付近（31.877°N、131.449°E、標高6m）を検証します。
 
 ```bash
-MSM_TOPO_5K=/path/to/TOPO.MSM_5K \
-MSM_LANDSEA_5K=/path/to/LANDSEA.MSM_5K \
+MSM_TOPO_ARCHIVE=/path/to/chikeidata_joho648.zip \
 MSM_RUN_REAL_DATA=1 \
 pytest -q -s -m real_data \
   tests/test_interpolated_terrain_real_data.py
 ```
 
-2026-07-30に公式配布ZIPと全内包SHA-256を再検証し、[GitHub Actions run 30468895143](https://github.com/Yuto-24/jma-msm-wind-kyushu/actions/runs/30468895143)で2件の実データ試験が成功しました。
+2026-07-30に公式配布ZIPと全内包SHA-256を再検証し、[GitHub Actions run 30469808103](https://github.com/Yuto-24/jma-msm-wind-kyushu/actions/runs/30469808103)でarchiveからcacheへのround-tripを含む2件の実データ試験が成功しました。`terrain_distribution_chain_verified=true`も確認済みです。通常テストはPython 3.10/3.11/3.12の各環境で成功し、Python 3.12では`40 passed, 4 skipped`でした。
 
 - TOPO地形高度：`31.3286265886 m`
 - LANDSEA陸比：`0.5061216165`
