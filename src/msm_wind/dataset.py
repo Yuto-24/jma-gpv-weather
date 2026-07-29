@@ -298,11 +298,17 @@ class PreparedForecast:
             warnings=tuple(warnings),
             provenance=self._provenance(
                 "bilinear,time-linear,hypsometric-isa-v1",
-                {
-                    "terrain_source": getattr(self.terrain_provider, "source", None),
-                    "terrain_source_sha256": getattr(
-                        self.terrain_provider, "source_sha256", None
-                    ),
-                },
+                self._terrain_provenance(),
             ),
         )
+
+    def _terrain_provenance(self):
+        provenance = getattr(self.terrain_provider, "provenance", None)
+        if isinstance(provenance, Mapping):
+            return dict(provenance)
+        return {
+            "terrain_source": getattr(self.terrain_provider, "source", None),
+            "terrain_source_sha256": getattr(
+                self.terrain_provider, "source_sha256", None
+            ),
+        }

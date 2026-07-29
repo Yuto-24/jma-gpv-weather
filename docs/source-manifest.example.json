@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "artifact_type": "jma_msm_gpv_model_terrain_pzs",
+  "file_name": "Z__C_RJTD_20250520000000_MSM_GPV_Rjp_Glm5km_Lm1-39_Pzs_FH00_grib2.bin",
+  "sha256": "REPLACE_WITH_64_LOWERCASE_HEXADECIMAL_CHARACTERS",
+  "initial_time_utc": "2025-05-20T00:00:00Z",
+  "model_terrain_version": "2025-05-20",
+  "source": {
+    "kind": "official",
+    "provider": "Japan Meteorological Business Support Center (JMBSC)",
+    "url": "REPLACE_WITH_THE_OFFICIAL_DOWNLOAD_OR_PROVISIONING_URL",
+    "acquired_at_utc": "REPLACE_WITH_THE_UTC_ACQUISITION_TIME"
+  },
+  "terms": {
+    "private_repository_bundling": "permitted",
+    "usage": "REPLACE_WITH_THE_APPLICABLE_USAGE_TERMS",
+    "redistribution": "REPLACE_WITH_THE_APPLICABLE_REDISTRIBUTION_TERMS",
+    "reference": "REPLACE_WITH_THE_JMBSC_TERMS_OR_WRITTEN_RESPONSE_REFERENCE"
+  },
+  "technical_references": [
+    "https://www.data.jma.go.jp/suishin/jyouhou/pdf/619.pdf",
+    "https://www.data.jma.go.jp/suishin/jyouhou/pdf/648.pdf",
+    "https://www.data.jma.go.jp/suishin/oshirase/pdf/20250509.pdf"
+  ]
+}
