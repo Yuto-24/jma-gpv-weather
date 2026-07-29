@@ -5,8 +5,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
-from .core import Bounds, RISH_BASE, RemoteFile, RunSelection, parse_listing, read_listing
-from .errors import NoCompatibleRunError, SelectedRunCoverageError
+from .core import (
+    LEVELS_HPA,
+    Bounds,
+    RISH_BASE,
+    RemoteFile,
+    RunSelection,
+    parse_listing,
+    read_listing,
+)
+from .errors import MissingVariableError, NoCompatibleRunError, SelectedRunCoverageError
 from .models import (
     ForecastRequirements,
     ForecastRunStatus,
@@ -24,6 +32,15 @@ PRESSURE_VARIABLES = {
     WeatherVariable.ALOFT_WIND,
     WeatherVariable.ALOFT_TEMPERATURE,
 }
+
+
+def interpolation_bounds(bounds: Bounds) -> Bounds:
+    return Bounds(
+        max(22.4, bounds.lat_min - 0.11),
+        min(47.6, bounds.lat_max + 0.11),
+        max(120.0, bounds.lon_min - 0.13),
+        min(150.0, bounds.lon_max + 0.13),
+    )
 
 
 def _bracket_hours(valid_time: datetime, step_hours: int) -> tuple[datetime, ...]:
@@ -96,6 +113,8 @@ class MsmClient:
         self.base_url = base_url
 
     def discover_runs(self, requirements: ForecastRequirements) -> tuple[RunSelection, ...]:
+        from .cache import cached_listing
+
         needed = required_valid_times(requirements)
         earliest = min(time for values in needed.values() for time in values)
         latest = max(time for values in needed.values() for time in values)
@@ -106,7 +125,8 @@ class MsmClient:
         while day <= last_day:
             directory = f"{self.base_url.rstrip('/')}/{day:%Y/%m/%d}"
             try:
-                files.extend(parse_listing(read_listing(directory), directory))
+                listing = cached_listing(directory, self.cache_dir, read_listing)
+                files.extend(parse_listing(listing, directory))
             except Exception:
                 pass
             day += timedelta(days=1)
@@ -159,7 +179,8 @@ class MsmClient:
         valid_times = tuple(
             sorted({value for values in needed.values() for value in values})
         )
-        key = normalized_key(self.bounds, valid_times)
+        prepared_bounds = interpolation_bounds(self.bounds)
+        key = normalized_key(prepared_bounds, valid_times)
         normalized_path = (
             self.cache_dir
             / "normalized"
@@ -181,7 +202,10 @@ class MsmClient:
                 surface, pressure = {}, {}
             if not surface and not pressure:
                 surface, pressure = read_grib_records(
-                    paths, None, self.bounds, valid_times=valid_times
+                    paths,
+                    None,
+                    prepared_bounds,
+                    valid_times=valid_times,
                 )
                 save_records(
                     normalized_path,
@@ -192,6 +216,7 @@ class MsmClient:
                         "source_hashes_json": __import__("json").dumps(hashes, sort_keys=True),
                     },
                 )
+        self._validate_prepared(requirements, needed, surface, pressure)
         return PreparedForecast(
             selection,
             surface,
@@ -199,3 +224,32 @@ class MsmClient:
             hashes,
             terrain_provider=terrain_provider,
         )
+
+    @staticmethod
+    def _validate_prepared(requirements, needed, surface, pressure):
+        missing = []
+        if WeatherVariable.SURFACE_WIND in requirements.variables:
+            for valid in needed.get("Lsurf", ()):
+                for name in ("u", "v"):
+                    if not any(key[0] == valid and key[2] == name for key in surface):
+                        missing.append(f"{valid.isoformat()}:surface:{name}")
+        if WeatherVariable.ESTIMATED_QNH in requirements.variables:
+            for valid in needed.get("Lsurf", ()):
+                for name in ("sp", "tmp_surface", "rh"):
+                    if not any(key[0] == valid and key[2] == name for key in surface):
+                        missing.append(f"{valid.isoformat()}:surface:{name}")
+        pressure_names = {"hgt"}
+        if WeatherVariable.ALOFT_WIND in requirements.variables:
+            pressure_names.update(("u", "v"))
+        if WeatherVariable.ALOFT_TEMPERATURE in requirements.variables:
+            pressure_names.add("tmp")
+        if pressure_names != {"hgt"}:
+            for valid in needed.get("L-pall", ()):
+                for level in LEVELS_HPA:
+                    for name in pressure_names:
+                        if (valid, level, name) not in pressure:
+                            missing.append(f"{valid.isoformat()}:{level}hPa:{name}")
+        if missing:
+            raise MissingVariableError(
+                "required MSM fields are missing: " + ", ".join(missing[:12])
+            )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -46,6 +47,7 @@ def validate_grib(path: Path) -> None:
 def acquire_files(
     files: Iterable[RemoteFile], cache_dir: Path
 ) -> tuple[tuple[Path, ...], dict[str, str]]:
+    files = tuple(files)
     paths: list[Path] = []
     hashes: dict[str, str] = {}
     for remote in files:
@@ -86,3 +88,32 @@ def acquire_files(
     temporary.replace(manifest_path)
     return tuple(paths), hashes
 
+
+def cached_listing(url: str, cache_dir: Path, reader, ttl_seconds: int = 900) -> str:
+    key = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    path = cache_dir / "listings" / f"{key}.html"
+    lock = cache_dir / "locks" / f"listing-{key}.lock"
+    with file_lock(lock):
+        if path.exists() and time.time() - path.stat().st_mtime <= ttl_seconds:
+            return path.read_text(encoding="ascii", errors="ignore")
+        content = reader(url)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".html.tmp")
+        temporary.write_text(content, encoding="ascii", errors="ignore")
+        temporary.replace(path)
+        return content
+
+
+def verify_cache(cache_dir: Path) -> dict:
+    files = sorted((cache_dir / "raw").glob("*/*.bin"))
+    results = []
+    valid = True
+    for path in files:
+        try:
+            validate_grib(path)
+            digest = sha256_file(path)
+            results.append({"path": str(path), "sha256": digest, "valid": True})
+        except (OSError, ValueError) as exc:
+            valid = False
+            results.append({"path": str(path), "valid": False, "error": str(exc)})
+    return {"valid": valid, "files": results}

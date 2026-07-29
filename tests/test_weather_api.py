@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 import pytest
 import numpy as np
 
-from msm_wind.client import required_valid_times, select_compatible_runs
+from msm_wind.cache import cached_listing
+from msm_wind.client import interpolation_bounds, required_valid_times, select_compatible_runs
 from msm_wind.core import RISH_BASE, RemoteFile, RunSelection
 from msm_wind.interpolation import bilinear, temporal, vertical_at_height
 from msm_wind.models import ForecastRequirements, RunId, WeatherVariable
@@ -179,3 +180,23 @@ def test_terrain_static_cache_round_trip(tmp_path):
     provider = GridTerrainProvider(np.array([[0.0, 100.0], [200.0, 300.0]]), lat, lon)
     restored = GridTerrainProvider.load(provider.save(tmp_path / "terrain.npz"))
     assert restored(30.5, 130.5) == pytest.approx(150)
+
+
+def test_interpolation_bounds_add_grid_halo():
+    expanded = interpolation_bounds(MsmClient().bounds)
+    assert expanded.lat_min < 29.7
+    assert expanded.lat_max > 35.2
+    assert expanded.lon_min < 128.5
+    assert expanded.lon_max > 134.8
+
+
+def test_directory_listing_is_cached(tmp_path):
+    calls = []
+
+    def reader(url):
+        calls.append(url)
+        return "listing"
+
+    assert cached_listing("http://example.test/day", tmp_path, reader) == "listing"
+    assert cached_listing("http://example.test/day", tmp_path, reader) == "listing"
+    assert calls == ["http://example.test/day"]

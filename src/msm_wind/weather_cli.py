@@ -73,6 +73,7 @@ def build_parser():
     terrain = commands.add_parser("prepare-terrain", allow_abbrev=False)
     terrain.add_argument("--input-grib", type=Path, required=True)
     terrain.add_argument("--output", type=Path, required=True)
+    commands.add_parser("cache-verify", allow_abbrev=False)
     return parser
 
 
@@ -87,6 +88,12 @@ def main(argv=None):
             provider = GridTerrainProvider.from_grib(args.input_grib, bounds)
             _print({"terrain_cache": provider.save(args.output), "source": provider.source})
             return 0
+        if args.command == "cache-verify":
+            from .cache import verify_cache
+
+            result = verify_cache(args.cache_dir)
+            _print(result)
+            return 0 if result["valid"] else 4
         client = MsmClient(args.cache_dir, bounds)
         if args.command == "resolve":
             requirements = ForecastRequirements(
