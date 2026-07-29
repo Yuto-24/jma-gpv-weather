@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jma-msm-wind"
-version = "0.2.0"
+version = "0.2.1"
 description = "Download, cache, and query JMA MSM weather forecasts from the RISH archive"
 readme = "README.md"
 requires-python = ">=3.10"
