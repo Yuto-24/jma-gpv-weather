@@ -29,6 +29,9 @@
   "license": {
     "spdx": "CC-BY-4.0",
     "url": "https://creativecommons.org/licenses/by/4.0/",
+    "source_file_name": "202505_MSM地形データ/README.txt",
+    "source_date": "令和7年4月",
+    "issuer": "気象庁",
     "attribution": "東京大学准教授 山崎大氏作成の MERIT-DEM を気象庁が低解像度化した地形データ（CC BY 4.0）。生成する cache は九州範囲への切り出しと NPZ 圧縮を行った加工物です。"
   },
   "processing": {
