@@ -29,5 +29,5 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-  "real_data: opt-in tests requiring an official Pzs asset or network data",
+  "real_data: opt-in tests requiring official terrain assets or network data",
 ]
