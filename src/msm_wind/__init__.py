@@ -2,6 +2,7 @@
 
 from .client import DEFAULT_BOUNDS, MsmClient
 from .core import Bounds
+from .dataset import PreparedForecast
 from .models import (
     AloftQuery,
     Availability,
@@ -23,6 +24,7 @@ __all__ = [
     "ForecastRequirements",
     "ForecastRunStatus",
     "MsmClient",
+    "PreparedForecast",
     "RunId",
     "SurfaceWindQuery",
     "WeatherResult",

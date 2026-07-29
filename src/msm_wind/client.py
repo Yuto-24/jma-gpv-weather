@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .core import Bounds, RISH_BASE, RemoteFile, RunSelection, parse_listing, read_listing
-from .errors import NoCompatibleRunError
+from .errors import NoCompatibleRunError, SelectedRunCoverageError
 from .models import (
     ForecastRequirements,
     ForecastRunStatus,
@@ -132,3 +132,39 @@ class MsmClient:
         if not covers:
             warnings = ("SELECTED_RUN_OUT_OF_COVERAGE",)
         return ForecastRunStatus(selected_run, latest, update, covers, warnings)
+
+    def prepare_run(
+        self,
+        run: RunId,
+        requirements: ForecastRequirements,
+        available_runs: tuple[RunSelection, ...] | None = None,
+        terrain_provider=None,
+    ):
+        from .cache import acquire_files
+        from .core import read_grib_records
+        from .dataset import PreparedForecast
+
+        runs = available_runs or self.discover_runs(requirements)
+        selection = next(
+            (candidate for candidate in runs if candidate.run_utc == run.initial_time_utc),
+            None,
+        )
+        if selection is None:
+            raise SelectedRunCoverageError(
+                f"selected run {run} does not cover all required interpolation times"
+            )
+        paths, hashes = acquire_files(selection.files, self.cache_dir)
+        needed = required_valid_times(requirements)
+        valid_times = tuple(
+            sorted({value for values in needed.values() for value in values})
+        )
+        surface, pressure = read_grib_records(
+            paths, None, self.bounds, valid_times=valid_times
+        )
+        return PreparedForecast(
+            selection,
+            surface,
+            pressure,
+            hashes,
+            terrain_provider=terrain_provider,
+        )
