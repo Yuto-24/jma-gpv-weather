@@ -6,7 +6,6 @@ import json
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -27,7 +26,7 @@ from msm_wind.interpolated_terrain import (
     GRID_NY,
     InterpolatedTerrainSourceManifest,
 )
-from msm_wind.terrain import GridTerrainProvider, validate_pzs_message
+from msm_wind.terrain import GridTerrainProvider
 from msm_wind.weather_cli import build_parser
 
 UTC = timezone.utc
@@ -290,9 +289,7 @@ def test_distribution_archive_verifies_full_chain_and_point_bounds(
     assert provider.topography_m.shape == (4, 4)
 
 
-def test_interpolated_cache_round_trip_and_kyushu_interpolation(
-    tmp_path, monkeypatch
-):
+def test_interpolated_cache_round_trip_and_loader_separation(tmp_path, monkeypatch):
     provider = _provider(tmp_path, monkeypatch)
     cache_path = provider.save(tmp_path / "interpolated-terrain.npz")
     restored = InterpolatedMsmTopographyProvider.load(cache_path)
@@ -312,6 +309,16 @@ def test_interpolated_cache_round_trip_and_kyushu_interpolation(
 
     with pytest.raises(TerrainValidationError):
         GridTerrainProvider.load(cache_path)
+
+    latitude_grid = np.array([[31.0, 31.0], [32.0, 32.0]])
+    longitude_grid = np.array([[131.0, 132.0], [131.0, 132.0]])
+    pzs_cache = GridTerrainProvider(
+        np.array([[0.0, 10.0], [20.0, 30.0]]),
+        latitude_grid,
+        longitude_grid,
+    ).save(tmp_path / "pzs-terrain.npz")
+    with pytest.raises(TerrainValidationError):
+        InterpolatedMsmTopographyProvider.load(pzs_cache)
 
 
 def test_cache_rejects_incomplete_provenance(tmp_path, monkeypatch):
@@ -338,46 +345,57 @@ def test_cache_rejects_incomplete_provenance(tmp_path, monkeypatch):
         InterpolatedMsmTopographyProvider.load(tampered)
 
 
-def test_pzs_validator_rejects_regular_latlon_topography_grid():
-    message = SimpleNamespace(
-        edition=2,
-        discipline=0,
-        parameterCategory=3,
-        parameterNumber=33,
-        gridDefinitionTemplateNumber=0,
-        gridType="regular_ll",
-        Nx=481,
-        Ny=505,
-        numberOfPoints=481 * 505,
-        forecastTime=0,
-        productDefinitionTemplateNumber=0,
-        typeOfFirstFixedSurface=1,
-        analDate=datetime(2026, 7, 27, 12),
-    )
-
-    with pytest.raises(TerrainValidationError, match="Lambert"):
-        validate_pzs_message(message, datetime(2026, 7, 27, 12, tzinfo=UTC))
-
-
 def test_cli_requires_explicit_interpolated_cache_selector():
-    args = build_parser().parse_args(
-        [
-            "query-qnh",
-            "--time",
-            "2026-07-27T12:00:00Z",
-            "--lat",
-            "31.877",
-            "--lon",
-            "131.449",
-            "--elevation-m-msl",
-            "6",
-            "--interpolated-terrain-cache",
-            "terrain.npz",
-        ]
+    parser = build_parser()
+    query_args = [
+        "query-qnh",
+        "--time",
+        "2026-07-27T12:00:00Z",
+        "--lat",
+        "31.877",
+        "--lon",
+        "131.449",
+        "--elevation-m-msl",
+        "6",
+    ]
+    args = parser.parse_args(
+        [*query_args, "--interpolated-terrain-cache", "terrain.npz"]
     )
 
     assert args.interpolated_terrain_cache == Path("terrain.npz")
     assert args.terrain_cache is None
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                *query_args,
+                "--terrain-cache",
+                "pzs.npz",
+                "--interpolated-terrain-cache",
+                "topo.npz",
+            ]
+        )
+
+
+def test_qnh_without_terrain_remains_unavailable():
+    valid_time = datetime(2026, 7, 27, 12, tzinfo=UTC)
+    remote = RemoteFile(
+        "surface.bin",
+        "https://example.test/surface.bin",
+        valid_time,
+        "Lsurf",
+        0,
+        15,
+    )
+    forecast = PreparedForecast(
+        RunSelection(valid_time, (remote,)), {}, {}, {}, terrain_provider=None
+    )
+
+    result = forecast.query(
+        EstimatedQnhQuery(31.877, 131.449, valid_time, elevation_msl_m=6)
+    )
+
+    assert result.availability == Availability.UNAVAILABLE
+    assert result.reason_code == "MODEL_TERRAIN_UNAVAILABLE"
 
 
 def test_qnh_reports_interpolated_terrain_and_coastal_diagnostics(
