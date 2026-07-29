@@ -80,7 +80,7 @@ msm-weather query-surface \
 msm-weather query-qnh \
   --time 2026-07-28T03:30:00Z \
   --lat 31.877 --lon 131.449 --elevation-m-msl 6 \
-  --terrain-cache data/static/model-terrain/v1/terrain.npz
+  --terrain-cache data/static/model-terrain/v2/terrain.npz
 ```
 
 従来互換：
@@ -98,7 +98,7 @@ msm-wind --date 2026-07-28 --work-dir data --output-dir outputs
 data/
 ├─ raw/RUN_ID/                 生GRIB2、manifest、SHA-256
 ├─ normalized/v1/RUN_ID/KEY/  正規化NetCDF
-├─ static/model-terrain/v1/   Pzs由来の静的地形
+├─ static/model-terrain/v2/   公式Pzs由来の静的地形
 └─ locks/
 ```
 
@@ -111,12 +111,17 @@ QNH推定には、Lsurfの地上気圧・気温・相対湿度に加え、気象
 ```bash
 msm-weather prepare-terrain \
   --input-grib /path/to/MSM_GPV_Rjp_Glm5km_Lm1-39_Pzs_FH00_grib2.bin \
-  --output data/static/model-terrain/v1/terrain.npz
+  --source-manifest /path/to/source-manifest.json \
+  --output data/static/model-terrain/v2/terrain.npz
 ```
 
-RISHの通常の`gpv/original`一覧にはPzsがないため、公式ソースから別途入手してください。Pzsがない場合、風・気温・地上風は使用できますが、QNHだけが`MODEL_TERRAIN_UNAVAILABLE`になります。外部DEMや海面更正気圧へ暗黙にフォールバックしません。
+`prepare-terrain`は、manifestのSHA-256と初期時刻を照合し、GRIB2がPzs（パラメータカテゴリ3・番号33）、817×661のLambert格子、FH00であることを検証してからcache schema v2を生成します。Pqcなどの別要素は拒否します。cache v2には公式取得元、元GRIBのSHA-256、初期時刻、モデル地形版、利用条件への参照が保存され、QNHのprovenanceへ引き継がれます。既存cache schema v1は読み込みのみ維持します。
+
+RISHの通常の`gpv/original`一覧にはPzsがないため、JMBSCの公式窓口から別途入手してください。Pzsがない場合、風・気温・地上風は使用できますが、QNHだけが`MODEL_TERRAIN_UNAVAILABLE`になります。公開サンプルのPqc、等緯度経度へ内挿された`TOPO.MSM_5K`、外部DEM、海面更正気圧へ暗黙にフォールバックしません。
 
 QNH結果には必ず`MSM-derived estimated QNH`、`ESTIMATED_QNH_NOT_OFFICIAL`、使用地形、地点標高、診断用MSLP、計算方式versionを付与します。
+
+Pzsの取得・manifest・検証・更新手順は[モデル地形の運用方針](docs/model-terrain.md)を参照してください。
 
 ## 出典
 
@@ -124,5 +129,8 @@ QNH結果には必ず`MSM-derived estimated QNH`、`ESTIMATED_QNH_NOT_OFFICIAL`�
 - 無料配布：京都大学生存圏研究所RISH
 - [RISH 気象庁データ](http://database.rish.kyoto-u.ac.jp/arch/jmadata/)
 - [JMBSC MSM仕様](https://www.jmbsc.or.jp/jp/online/file/f-online10200.html)
+- [気象庁 技術情報第619号](https://www.data.jma.go.jp/suishin/jyouhou/pdf/619.pdf)
+- [気象庁 技術情報第648号](https://www.data.jma.go.jp/suishin/jyouhou/pdf/648.pdf)
+- [JMBSC 気象庁クラウド環境](https://www.jmbsc.or.jp/jp/online/x-online0.html)
 
 RISHの利用条件を確認し、企業活動等で頻繁に利用する場合は気象業務支援センターからの取得を検討してください。

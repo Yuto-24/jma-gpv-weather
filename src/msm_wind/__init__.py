@@ -14,7 +14,7 @@ from .models import (
     WeatherResult,
     WeatherVariable,
 )
-from .terrain import GridTerrainProvider
+from .terrain import GridTerrainProvider, TerrainSourceManifest
 
 __all__ = [
     "DEFAULT_BOUNDS",
@@ -29,6 +29,7 @@ __all__ = [
     "PreparedForecast",
     "RunId",
     "SurfaceWindQuery",
+    "TerrainSourceManifest",
     "WeatherResult",
     "WeatherVariable",
 ]

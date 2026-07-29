@@ -82,6 +82,7 @@ def build_parser():
 
     terrain = commands.add_parser("prepare-terrain", allow_abbrev=False)
     terrain.add_argument("--input-grib", type=Path, required=True)
+    terrain.add_argument("--source-manifest", type=Path, required=True)
     terrain.add_argument("--output", type=Path, required=True)
     commands.add_parser("cache-verify", allow_abbrev=False)
     return parser
@@ -95,8 +96,19 @@ def main(argv=None):
         return 2
     try:
         if args.command == "prepare-terrain":
-            provider = GridTerrainProvider.from_grib(args.input_grib, bounds)
-            _print({"terrain_cache": provider.save(args.output), "source": provider.source})
+            provider = GridTerrainProvider.from_grib(
+                args.input_grib,
+                bounds,
+                source_manifest=args.source_manifest,
+            )
+            _print(
+                {
+                    "terrain_cache": provider.save(args.output),
+                    "source": provider.source,
+                    "source_sha256": provider.source_sha256,
+                    "model_terrain_version": provider.model_terrain_version,
+                }
+            )
             return 0
         if args.command == "cache-verify":
             from .cache import verify_cache
