@@ -121,12 +121,11 @@ msm-weather prepare-terrain \
 
 RISHの通常の`gpv/original`一覧にはPzsがないため、JMBSCの公式窓口から別途入手してください。Pzsがない場合、風・気温・地上風は使用できますが、QNHだけが`MODEL_TERRAIN_UNAVAILABLE`になります。Pqc、外部DEM、海面更正気圧へ暗黙にフォールバックしません。
 
-JMBSCがCC BY 4.0で公開する`TOPO.MSM_5K`は、Pzsとは別の実験的providerとして明示指定時だけ使用できます。
+JMBSCがCC BY 4.0で公開する`TOPO.MSM_5K`は、Pzsとは別の実験的providerとして明示指定時だけ使用できます。公式配布ZIPからouter/inner archiveと2つのartifactのSHA-256を検証してcacheを生成します。
 
 ```bash
 msm-weather prepare-interpolated-terrain \
-  --topography /path/to/TOPO.MSM_5K \
-  --landsea /path/to/LANDSEA.MSM_5K \
+  --distribution-archive /path/to/chikeidata_joho648.zip \
   --source-manifest manifests/topo-msm-5k-2025-05-20.json \
   --output data/static/interpolated-model-terrain/v1/terrain.npz
 
