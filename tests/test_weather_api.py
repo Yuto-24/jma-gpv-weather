@@ -14,6 +14,7 @@ from msm_wind.dataset import PreparedForecast
 from msm_wind.models import AloftQuery, Availability, EstimatedQnhQuery, SurfaceWindQuery
 from msm_wind.normalized import load_records, save_records
 from msm_wind.terrain import GridTerrainProvider
+from msm_wind.weather_cli import build_parser
 
 UTC = timezone.utc
 
@@ -67,6 +68,38 @@ def test_selected_run_does_not_change_when_update_exists():
     assert status.selected_run == RunId(older.run_utc)
     assert status.latest_compatible_run == RunId(newer.run_utc)
     assert status.update_available
+
+
+def test_selected_run_outside_changed_request_is_not_replaced():
+    req = requirements(datetime(2026, 7, 28, 0, tzinfo=UTC))
+    compatible = RunSelection(
+        datetime(2026, 7, 27, 12, tzinfo=UTC),
+        (remote(12, "Lsurf", 0, 39), remote(12, "L-pall", 0, 39)),
+    )
+    selected = RunId(datetime(2026, 7, 27, 9, tzinfo=UTC))
+    status = MsmClient().resolve_run(req, selected, available_runs=(compatible,))
+    assert status.selected_run == selected
+    assert not status.selected_run_covers_request
+    assert status.warnings == ("SELECTED_RUN_OUT_OF_COVERAGE",)
+
+
+def test_prepare_cli_accepts_repeated_times_and_variables():
+    args = build_parser().parse_args(
+        [
+            "prepare",
+            "--time",
+            "2026-07-28T00:00:00Z",
+            "--time",
+            "2026-07-28T03:00:00Z",
+            "--variable",
+            "aloft_wind",
+            "--variable",
+            "aloft_temperature",
+        ]
+    )
+    assert args.command == "prepare"
+    assert len(args.time) == 2
+    assert args.variable == ["aloft_wind", "aloft_temperature"]
 
 
 def test_4d_interpolation_primitives_are_linear():
