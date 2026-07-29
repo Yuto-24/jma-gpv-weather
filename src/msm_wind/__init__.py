@@ -3,6 +3,10 @@
 from .client import DEFAULT_BOUNDS, MsmClient
 from .core import Bounds
 from .dataset import PreparedForecast
+from .interpolated_terrain import (
+    InterpolatedMsmTopographyProvider,
+    InterpolatedTerrainSourceManifest,
+)
 from .models import (
     AloftQuery,
     Availability,
@@ -25,6 +29,8 @@ __all__ = [
     "ForecastRequirements",
     "ForecastRunStatus",
     "GridTerrainProvider",
+    "InterpolatedMsmTopographyProvider",
+    "InterpolatedTerrainSourceManifest",
     "MsmClient",
     "PreparedForecast",
     "RunId",
