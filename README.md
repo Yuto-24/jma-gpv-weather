@@ -13,7 +13,7 @@ RISH（京都大学生存圏研究所）のJMA MSM GRIB2を取得し、任意地
 - HGTを用いた任意MSL高度のU/V/TMP補間
 - AGL 0 m要求に対するMSM 10 m AGL地上風
 - 地点標高とMSMモデル地形を使う`MSM-derived estimated QNH`
-- 公式Pzsと、明示opt-inの実験的`TOPO.MSM_5K`を分離した地形provider
+- Pzs由来cacheと、明示opt-inの実験的`TOPO.MSM_5K`を分離した地形provider
 - 元URL、SHA-256、格子点、気圧面、補間方式のprovenance
 - `.part`再開、atomic write、ファイルlock、raw/NetCDFキャッシュ
 
@@ -81,7 +81,7 @@ msm-weather query-surface \
 msm-weather query-qnh \
   --time 2026-07-28T03:30:00Z \
   --lat 31.877 --lon 131.449 --elevation-m-msl 6 \
-  --terrain-cache data/static/model-terrain/v2/terrain.npz
+  --terrain-cache data/static/model-terrain/v1/terrain.npz
 ```
 
 従来互換：
@@ -99,7 +99,7 @@ msm-wind --date 2026-07-28 --work-dir data --output-dir outputs
 data/
 ├─ raw/RUN_ID/                              生GRIB2、manifest、SHA-256
 ├─ normalized/v1/RUN_ID/KEY/               正規化NetCDF
-├─ static/model-terrain/v2/                公式Pzs由来の静的地形
+├─ static/model-terrain/v1/                Pzs由来の静的地形
 ├─ static/interpolated-model-terrain/v1/   実験的TOPO.MSM_5K
 └─ locks/
 ```
@@ -108,18 +108,15 @@ data/
 
 ## MSM推定QNH
 
-production向けQNH推定には、Lsurfの地上気圧・気温・相対湿度に加え、気象庁MSMモデル地形`Pzs`が必要です。
+QNH推定には、Lsurfの地上気圧・気温・相対湿度に加え、MSMモデル地形が必要です。従来のPzs由来cacheは次のように生成します。
 
 ```bash
 msm-weather prepare-terrain \
   --input-grib /path/to/MSM_GPV_Rjp_Glm5km_Lm1-39_Pzs_FH00_grib2.bin \
-  --source-manifest /path/to/source-manifest.json \
-  --output data/static/model-terrain/v2/terrain.npz
+  --output data/static/model-terrain/v1/terrain.npz
 ```
 
-`prepare-terrain`は、manifestのSHA-256と初期時刻を照合し、GRIB2がPzs（パラメータカテゴリ3・番号33）、817×661のLambert格子、FH00であることを検証してからcache schema v2を生成します。Pqcなどの別要素は拒否します。cache v2には公式取得元、元GRIBのSHA-256、初期時刻、モデル地形版、利用条件への参照が保存され、QNHのprovenanceへ引き継がれます。既存cache schema v1は読み込みのみ維持します。
-
-RISHの通常の`gpv/original`一覧にはPzsがないため、JMBSCの公式窓口から別途入手してください。Pzsがない場合、風・気温・地上風は使用できますが、QNHだけが`MODEL_TERRAIN_UNAVAILABLE`になります。Pqc、外部DEM、海面更正気圧へ暗黙にフォールバックしません。
+RISHの通常の`gpv/original`一覧にはPzsがないため、公式ソースから別途入手してください。Pzsがない場合、風・気温・地上風は使用できますが、QNHだけが`MODEL_TERRAIN_UNAVAILABLE`になります。外部DEMや海面更正気圧へ暗黙にフォールバックしません。
 
 JMBSCがCC BY 4.0で公開する`TOPO.MSM_5K`は、Pzsとは別の実験的providerとして明示指定時だけ使用できます。公式配布ZIPからouter/inner archiveと2つのartifactのSHA-256を検証してcacheを生成します。
 
@@ -136,11 +133,10 @@ msm-weather query-qnh \
   data/static/interpolated-model-terrain/v1/terrain.npz
 ```
 
-`--terrain-cache`と`--interpolated-terrain-cache`は排他的です。形式を自動判定せず、Pzs失敗時のfallbackにもなりません。後者のQNHには`INTERPOLATED_MODEL_TERRAIN`を必ず付け、`LANDSEA`の補間値が0.05より大きく0.95未満なら`COASTAL_MIXED_LAND_FRACTION`も付けます。
+`--terrain-cache`と`--interpolated-terrain-cache`は排他的です。形式を自動判定せず、Pzs取得失敗時のfallbackにもなりません。後者のQNHには`INTERPOLATED_MODEL_TERRAIN`を必ず付け、`LANDSEA`の補間値が0.05より大きく0.95未満なら`COASTAL_MIXED_LAND_FRACTION`も付けます。
 
 QNH結果には必ず`MSM-derived estimated QNH`、`ESTIMATED_QNH_NOT_OFFICIAL`、使用地形、地点標高、診断用MSLP、計算方式versionを付与します。
 
-- [Pzsモデル地形の運用方針](docs/model-terrain.md)
 - [TOPO.MSM_5Kの実験的opt-in方針](docs/interpolated-terrain.md)
 
 ## 出典
@@ -149,9 +145,7 @@ QNH結果には必ず`MSM-derived estimated QNH`、`ESTIMATED_QNH_NOT_OFFICIAL`�
 - 無料配布：京都大学生存圏研究所RISH
 - [RISH 気象庁データ](http://database.rish.kyoto-u.ac.jp/arch/jmadata/)
 - [JMBSC MSM仕様](https://www.jmbsc.or.jp/jp/online/file/f-online10200.html)
-- [気象庁 技術情報第619号](https://www.data.jma.go.jp/suishin/jyouhou/pdf/619.pdf)
 - [気象庁 技術情報第648号](https://www.data.jma.go.jp/suishin/jyouhou/pdf/648.pdf)
 - [JMBSC 地形データ配布](https://www.jmbsc.or.jp/jp/online/c-onlineGsd.html)
-- [JMBSC 気象庁クラウド環境](https://www.jmbsc.or.jp/jp/online/x-online0.html)
 
 RISHの利用条件を確認し、企業活動等で頻繁に利用する場合は気象業務支援センターからの取得を検討してください。
