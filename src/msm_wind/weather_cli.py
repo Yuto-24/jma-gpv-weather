@@ -91,8 +91,10 @@ def build_parser():
     interpolated_terrain = commands.add_parser(
         "prepare-interpolated-terrain", allow_abbrev=False
     )
-    interpolated_terrain.add_argument("--topography", type=Path, required=True)
-    interpolated_terrain.add_argument("--landsea", type=Path, required=True)
+    source = interpolated_terrain.add_mutually_exclusive_group(required=True)
+    source.add_argument("--distribution-archive", type=Path)
+    source.add_argument("--topography", type=Path)
+    interpolated_terrain.add_argument("--landsea", type=Path)
     interpolated_terrain.add_argument("--source-manifest", type=Path, required=True)
     interpolated_terrain.add_argument("--output", type=Path, required=True)
 
@@ -123,12 +125,23 @@ def main(argv=None):
             )
             return 0
         if args.command == "prepare-interpolated-terrain":
-            provider = InterpolatedMsmTopographyProvider.from_raw(
-                args.topography,
-                args.landsea,
-                args.source_manifest,
-                bounds=bounds,
-            )
+            if args.distribution_archive is not None:
+                provider = (
+                    InterpolatedMsmTopographyProvider.from_distribution_archive(
+                        args.distribution_archive,
+                        args.source_manifest,
+                        bounds=bounds,
+                    )
+                )
+            else:
+                if args.landsea is None:
+                    raise ValueError("--landsea is required with --topography")
+                provider = InterpolatedMsmTopographyProvider.from_raw(
+                    args.topography,
+                    args.landsea,
+                    args.source_manifest,
+                    bounds=bounds,
+                )
             _print(
                 {
                     "terrain_cache": provider.save(args.output),
@@ -139,6 +152,9 @@ def main(argv=None):
                     "source_sha256": provider.source_sha256,
                     "model_terrain_version": provider.provenance[
                         "terrain_model_version"
+                    ],
+                    "distribution_chain_verified": provider.provenance[
+                        "terrain_distribution_chain_verified"
                     ],
                 }
             )
