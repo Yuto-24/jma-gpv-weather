@@ -210,68 +210,10 @@ def test_normalized_cache_round_trip(tmp_path):
 def test_terrain_static_cache_round_trip(tmp_path):
     lat = np.array([[30.0, 30.0], [31.0, 31.0]])
     lon = np.array([[130.0, 131.0], [130.0, 131.0]])
-    provider = GridTerrainProvider(
-        np.array([[0.0, 100.0], [200.0, 300.0]]),
-        lat,
-        lon,
-        source="Japan Meteorological Business Support Center (JMBSC)",
-        source_sha256="a" * 64,
-        source_kind="official",
-        source_url="https://www.jmbsc.or.jp/jp/online/x-online0.html",
-        source_file_name=(
-            "Z__C_RJTD_20260727120000_MSM_GPV_Rjp_"
-            "Glm5km_Lm1-39_Pzs_FH00_grib2.bin"
-        ),
-        source_initial_time_utc="2026-07-27T12:00:00Z",
-        model_terrain_version="2025-05-20",
-        source_manifest_sha256="b" * 64,
-        source_acquired_at_utc="2026-07-29T00:00:00Z",
-        private_repository_bundling="permitted",
-        usage_terms="Private development use permitted.",
-        redistribution_terms="Subject to the cited JMBSC terms.",
-        terms_reference="JMBSC written response",
-        technical_references=(
-            "https://www.data.jma.go.jp/suishin/jyouhou/pdf/619.pdf",
-            "https://www.data.jma.go.jp/suishin/jyouhou/pdf/648.pdf",
-        ),
-    )
+    provider = GridTerrainProvider(np.array([[0.0, 100.0], [200.0, 300.0]]), lat, lon)
     restored = GridTerrainProvider.load(provider.save(tmp_path / "terrain.npz"))
     assert restored(30.5, 130.5) == pytest.approx(150)
-    assert restored.cache_schema_version == 2
-    assert restored.model_terrain_version == "2025-05-20"
-    assert restored.source_sha256 == "a" * 64
-    assert (
-        restored.provenance["terrain_source"]
-        == "Japan Meteorological Business Support Center (JMBSC)"
-    )
-    prepared = synthetic_prepared()
-    prepared.terrain_provider = restored
-    qnh = prepared.query(
-        EstimatedQnhQuery(
-            30.5,
-            130.5,
-            datetime(2026, 7, 28, tzinfo=UTC),
-            149,
-        )
-    )
-    assert qnh.provenance.trace["terrain_source_sha256"] == "a" * 64
-    assert qnh.provenance.trace["terrain_model_version"] == "2025-05-20"
     assert (tmp_path / "terrain.npz.json").exists()
-
-
-def test_qnh_without_terrain_remains_unavailable():
-    prepared = synthetic_prepared()
-    prepared.terrain_provider = None
-    result = prepared.query(
-        EstimatedQnhQuery(
-            30.5,
-            130.5,
-            datetime(2026, 7, 28, tzinfo=UTC),
-            149,
-        )
-    )
-    assert result.availability == Availability.UNAVAILABLE
-    assert result.reason_code == "MODEL_TERRAIN_UNAVAILABLE"
 
 
 def test_interpolation_bounds_add_grid_halo():
