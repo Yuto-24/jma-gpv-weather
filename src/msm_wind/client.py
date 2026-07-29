@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+import json
 from pathlib import Path
 from typing import Iterable
 
@@ -213,9 +214,28 @@ class MsmClient:
                     pressure,
                     {
                         "initial_time_utc": run.initial_time_utc.isoformat(),
-                        "source_hashes_json": __import__("json").dumps(hashes, sort_keys=True),
+                        "source_hashes_json": json.dumps(hashes, sort_keys=True),
                     },
                 )
+                manifest_path = normalized_path.parent / "manifest.json"
+                manifest_temp = manifest_path.with_suffix(".json.tmp")
+                manifest_temp.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "initial_time_utc": run.initial_time_utc.isoformat(),
+                            "prepared_bounds": prepared_bounds.__dict__,
+                            "valid_times": [value.isoformat() for value in valid_times],
+                            "source_hashes": hashes,
+                            "normalized_file": normalized_path.name,
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                manifest_temp.replace(manifest_path)
         self._validate_prepared(requirements, needed, surface, pressure)
         return PreparedForecast(
             selection,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +17,7 @@ class GridTerrainProvider:
     latitudes: np.ndarray
     longitudes: np.ndarray
     source: str = "JMA MSM model terrain (Pzs)"
+    source_sha256: str | None = None
 
     @classmethod
     def from_grib(cls, path: str | Path, bounds: Bounds):
@@ -27,7 +29,8 @@ class GridTerrainProvider:
             values, lat, lon = _subset_message(message, bounds)
         finally:
             grib.close()
-        return cls(values, lat, lon, source=str(path))
+        digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        return cls(values, lat, lon, source=str(path), source_sha256=digest)
 
     def save(self, path: str | Path) -> Path:
         destination = Path(path)
@@ -39,9 +42,31 @@ class GridTerrainProvider:
                 values_m=self.values_m,
                 latitudes=self.latitudes,
                 longitudes=self.longitudes,
-                metadata=json.dumps({"schema_version": 1, "source": self.source}),
+                metadata=json.dumps(
+                    {
+                        "schema_version": 1,
+                        "source": self.source,
+                        "source_sha256": self.source_sha256,
+                    }
+                ),
             )
         temporary.replace(destination)
+        manifest = destination.with_suffix(destination.suffix + ".json")
+        manifest_temp = manifest.with_suffix(manifest.suffix + ".tmp")
+        manifest_temp.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "source": self.source,
+                    "source_sha256": self.source_sha256,
+                    "terrain_cache": str(destination),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        manifest_temp.replace(manifest)
         return destination
 
     @classmethod
@@ -53,6 +78,7 @@ class GridTerrainProvider:
                 np.asarray(data["latitudes"]),
                 np.asarray(data["longitudes"]),
                 metadata["source"],
+                metadata.get("source_sha256"),
             )
 
     def __call__(self, latitude: float, longitude: float) -> float | None:

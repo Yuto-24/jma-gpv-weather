@@ -28,4 +28,3 @@ class MissingVariableError(MsmError):
 
 class StaticTerrainUnavailableError(MsmError):
     pass
-

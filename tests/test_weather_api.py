@@ -180,6 +180,7 @@ def test_terrain_static_cache_round_trip(tmp_path):
     provider = GridTerrainProvider(np.array([[0.0, 100.0], [200.0, 300.0]]), lat, lon)
     restored = GridTerrainProvider.load(provider.save(tmp_path / "terrain.npz"))
     assert restored(30.5, 130.5) == pytest.approx(150)
+    assert (tmp_path / "terrain.npz.json").exists()
 
 
 def test_interpolation_bounds_add_grid_halo():

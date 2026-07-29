@@ -79,4 +79,3 @@ def wind_metrics(u_ms: float, v_ms: float) -> tuple[float, float, float | None]:
     speed_kt = speed_ms * 1.9438444924406
     direction = None if speed_ms < 0.1 else (270.0 - math.degrees(math.atan2(v_ms, u_ms))) % 360
     return speed_ms, speed_kt, direction
-

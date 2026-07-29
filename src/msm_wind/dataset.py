@@ -278,6 +278,9 @@ class PreparedForecast:
             )
         estimate = estimate_qnh(fields[0][0], fields[1][0], fields[2][0], terrain, query.elevation_msl_m)
         mslp = self._surface_scalar("mslp", query.latitude, query.longitude, query.valid_time)
+        warnings = ["ESTIMATED_QNH_NOT_OFFICIAL", "NOT_FOR_OPERATIONAL_USE"]
+        if abs(estimate.terrain_difference_m) > 100:
+            warnings.append("MODEL_TERRAIN_DIFFERENCE")
         return WeatherResult(
             Availability.AVAILABLE,
             "estimated_qnh",
@@ -292,6 +295,14 @@ class PreparedForecast:
                 "diagnostic_mslp_pa": None if mslp is None else mslp[0],
                 "method_version": estimate.method_version,
             },
-            warnings=("ESTIMATED_QNH_NOT_OFFICIAL", "NOT_FOR_OPERATIONAL_USE"),
-            provenance=self._provenance("bilinear,time-linear,hypsometric-isa-v1"),
+            warnings=tuple(warnings),
+            provenance=self._provenance(
+                "bilinear,time-linear,hypsometric-isa-v1",
+                {
+                    "terrain_source": getattr(self.terrain_provider, "source", None),
+                    "terrain_source_sha256": getattr(
+                        self.terrain_provider, "source_sha256", None
+                    ),
+                },
+            ),
         )

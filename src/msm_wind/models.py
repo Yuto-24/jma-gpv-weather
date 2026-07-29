@@ -94,4 +94,3 @@ class WeatherResult:
     reason_code: str | None = None
     warnings: tuple[str, ...] = ("NOT_FOR_OPERATIONAL_USE",)
     provenance: Provenance = field(default_factory=Provenance)
-
