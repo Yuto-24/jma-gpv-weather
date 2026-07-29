@@ -43,6 +43,7 @@ jobs:
           PY
       - name: Run official terrain and fixed RISH run tests
         env:
+          MSM_TOPO_ARCHIVE: /tmp/chikeidata_joho648.zip
           MSM_TOPO_5K: /tmp/msm-topography/TOPO.MSM_5K
           MSM_LANDSEA_5K: /tmp/msm-topography/LANDSEA.MSM_5K
           MSM_RUN_REAL_DATA: "1"
