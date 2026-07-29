@@ -106,7 +106,27 @@ pytest -q -s -m real_data \
   tests/test_interpolated_terrain_real_data.py
 ```
 
-試験は地形高度、LANDSEA値、推定QNH、provenance、warningに加え、モデル地形高度を`-50, -25, -10, 0, +10, +25, +50 m`変えたQNH感度をJSONで出力します。確定した実測値はIssueまたはPRにも記録します。
+2026-07-30に公式配布ZIPと全内包SHA-256を再検証し、[GitHub Actions run 30468895143](https://github.com/Yuto-24/jma-msm-wind-kyushu/actions/runs/30468895143)で2件の実データ試験が成功しました。
+
+- TOPO地形高度：`31.3286265886 m`
+- LANDSEA陸比：`0.5061216165`
+- 海岸判定：`true`（`COASTAL_MIXED_LAND_FRACTION`）
+- 推定QNH：`1012.9807482038 hPa`
+- warning：`INTERPOLATED_MODEL_TERRAIN`、`ESTIMATED_QNH_NOT_OFFICIAL`、`NOT_FOR_OPERATIONAL_USE`、海岸混合警告
+
+地形高度を変えたQNH感度は次のとおりです。
+
+| 地形offset | QNH | baseline差 |
+|---:|---:|---:|
+| -50 m | 1007.3344156677 hPa | -5.6463325361 hPa |
+| -25 m | 1010.1543874699 hPa | -2.8263607339 hPa |
+| -10 m | 1011.8494365560 hPa | -1.1313116478 hPa |
+| 0 m | 1012.9807482038 hPa | 0 hPa |
+| +10 m | 1014.1130837873 hPa | +1.1323355835 hPa |
+| +25 m | 1015.8135085363 hPa | +2.8327603325 hPa |
+| +50 m | 1018.6526791446 hPa | +5.6719309408 hPa |
+
+この地点では地形高度誤差10mあたり約1.13hPa、50mで約5.66hPaのQNH差となり、海岸・山岳で内挿済み地形を明示する必要性を支持します。
 
 ## 制約と次の判断
 
