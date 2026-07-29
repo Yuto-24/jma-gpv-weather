@@ -116,7 +116,8 @@ class PreparedForecast:
             return None
         values_by_time = []
         trace = []
-        for valid in bracket:
+        interpolation_times = bracket[:1] if bracket[0] == bracket[1] else bracket
+        for valid in interpolation_times:
             candidates = [key for key in self.surface if key[0] == valid and key[2] == variable]
             if not candidates:
                 return None
@@ -146,7 +147,8 @@ class PreparedForecast:
             return None
         time_values = []
         full_trace = []
-        for valid in bracket:
+        interpolation_times = bracket[:1] if bracket[0] == bracket[1] else bracket
+        for valid in interpolation_times:
             sample_key = next(
                 (key for key in self.pressure if key[0] == valid and key[2] == variable), None
             )

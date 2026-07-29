@@ -14,6 +14,7 @@ from .models import (
     WeatherResult,
     WeatherVariable,
 )
+from .terrain import GridTerrainProvider
 
 __all__ = [
     "DEFAULT_BOUNDS",
@@ -23,6 +24,7 @@ __all__ = [
     "EstimatedQnhQuery",
     "ForecastRequirements",
     "ForecastRunStatus",
+    "GridTerrainProvider",
     "MsmClient",
     "PreparedForecast",
     "RunId",

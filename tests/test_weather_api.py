@@ -11,6 +11,8 @@ from msm_wind.qnh import estimate_qnh
 from msm_wind import MsmClient
 from msm_wind.dataset import PreparedForecast
 from msm_wind.models import AloftQuery, Availability, EstimatedQnhQuery, SurfaceWindQuery
+from msm_wind.normalized import load_records, save_records
+from msm_wind.terrain import GridTerrainProvider
 
 UTC = timezone.utc
 
@@ -150,3 +152,30 @@ def test_prepared_forecast_never_connects_surface_to_aloft():
     )
     assert result.availability == Availability.UNAVAILABLE
     assert result.reason_code == "VERTICAL_BRACKET_UNAVAILABLE"
+
+
+def test_normalized_cache_round_trip(tmp_path):
+    prepared = synthetic_prepared()
+    path = tmp_path / "weather.nc"
+    save_records(path, prepared.surface, prepared.pressure, {"initial_time_utc": "test"})
+    surface, pressure = load_records(path)
+    restored = PreparedForecast(
+        prepared.selection, surface, pressure, {}, lambda lat, lon: 100
+    )
+    result = restored.query(
+        AloftQuery(
+            30.5,
+            130.5,
+            datetime(2026, 7, 28, 1, 30, tzinfo=UTC),
+            1500,
+        )
+    )
+    assert result.values["u_ms"] == pytest.approx(16.5)
+
+
+def test_terrain_static_cache_round_trip(tmp_path):
+    lat = np.array([[30.0, 30.0], [31.0, 31.0]])
+    lon = np.array([[130.0, 131.0], [130.0, 131.0]])
+    provider = GridTerrainProvider(np.array([[0.0, 100.0], [200.0, 300.0]]), lat, lon)
+    restored = GridTerrainProvider.load(provider.save(tmp_path / "terrain.npz"))
+    assert restored(30.5, 130.5) == pytest.approx(150)

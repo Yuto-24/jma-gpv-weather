@@ -140,9 +140,10 @@ class MsmClient:
         available_runs: tuple[RunSelection, ...] | None = None,
         terrain_provider=None,
     ):
-        from .cache import acquire_files
+        from .cache import acquire_files, file_lock
         from .core import read_grib_records
         from .dataset import PreparedForecast
+        from .normalized import load_records, normalized_key, save_records
 
         runs = available_runs or self.discover_runs(requirements)
         selection = next(
@@ -158,9 +159,39 @@ class MsmClient:
         valid_times = tuple(
             sorted({value for values in needed.values() for value in values})
         )
-        surface, pressure = read_grib_records(
-            paths, None, self.bounds, valid_times=valid_times
+        key = normalized_key(self.bounds, valid_times)
+        normalized_path = (
+            self.cache_dir
+            / "normalized"
+            / "v1"
+            / str(run)
+            / key
+            / "weather.nc"
         )
+        lock_path = self.cache_dir / "locks" / f"normalized-{run}-{key}.lock"
+        with file_lock(lock_path):
+            if normalized_path.exists():
+                try:
+                    surface, pressure = load_records(normalized_path)
+                except (OSError, ValueError):
+                    corrupt = normalized_path.with_suffix(".nc.corrupt")
+                    normalized_path.replace(corrupt)
+                    surface, pressure = {}, {}
+            else:
+                surface, pressure = {}, {}
+            if not surface and not pressure:
+                surface, pressure = read_grib_records(
+                    paths, None, self.bounds, valid_times=valid_times
+                )
+                save_records(
+                    normalized_path,
+                    surface,
+                    pressure,
+                    {
+                        "initial_time_utc": run.initial_time_utc.isoformat(),
+                        "source_hashes_json": __import__("json").dumps(hashes, sort_keys=True),
+                    },
+                )
         return PreparedForecast(
             selection,
             surface,

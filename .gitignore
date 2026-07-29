@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 data/
+*.npz
+*.part
+*.lock
+*.corrupt.*
 outputs/*.csv
 outputs/*.json
 work/

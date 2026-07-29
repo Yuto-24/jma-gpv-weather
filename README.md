@@ -1,58 +1,125 @@
-# JMA MSM wind extractor
+# JMA MSM weather query foundation
 
-RISH（京都大学生存圏研究所）のJMAデータアーカイブからMSM GRIB2を取得し、指定したJST日付・矩形範囲の風をCSVへ抽出します。既定条件は次の通りです。
+RISH（京都大学生存圏研究所）のJMA MSM GRIB2を取得し、任意地点・時刻・高度の風と気温を問い合わせるPythonライブラリです。AutoNavLogの気象データ基盤として利用でき、従来の日単位CSV出力も維持しています。
 
-- 緯度29.7–35.2°N、経度128.5–134.8°E（実格子東端134.75°E）
-- 地上10 m風は1時間間隔、JST 00:00以上24:00未満
-- 気圧面は1000, 975, 950, 925, 900, 850, 800, 700, 600, 500 hPaのHGT/U/Vを3時間間隔
-- 15,000 ftは4572 m MSLのHGTを挟む2気圧面間でU/Vを線形補間
+> このパッケージと出力値は、運航用の規制・観測・飛行場気象資料を代替しません。
 
-## セットアップと実行
+## 対応機能
 
-Python 3.10以降を使います。
+- 既定範囲：29.7–35.2°N、128.5–134.8°E
+- `Bounds`による任意矩形
+- 要求全体を覆う最新の完全なForecast Runの選択
+- 保存済みRunの固定と、より新しいRunの`UPDATE_AVAILABLE`通知
+- HGTを用いた任意MSL高度のU/V/TMP補間
+- AGL 0 m要求に対するMSM 10 m AGL地上風
+- 地点標高とMSMモデル地形を使う`MSM-derived estimated QNH`
+- 元URL、SHA-256、格子点、気圧面、補間方式のprovenance
+- `.part`再開、atomic write、ファイルlock、raw/NetCDFキャッシュ
+
+風はU/V成分を鉛直、水平、時間方向に補間した後で、気象学上の「吹いてくる方向」と風速へ変換します。10 m風を気圧面風と自動接続せず、指定高度を気圧面HGTで挟めない場合は`unavailable`です。
+
+## セットアップ
+
+Python 3.10–3.12をサポートし、3.12を主対象とします。
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
 python -m pip install -e ".[test]"
-pytest
+pytest -q
+```
+
+`pygrib`が利用できない環境ではecCodesをOSまたはCondaで導入してください。
+
+## Python API
+
+```python
+from datetime import datetime, timezone
+from msm_wind import (
+    AloftQuery,
+    ForecastRequirements,
+    MsmClient,
+    RunId,
+    WeatherVariable,
+)
+
+valid_time = datetime(2026, 7, 28, 3, 30, tzinfo=timezone.utc)
+requirements = ForecastRequirements(
+    valid_times=(valid_time,),
+    variables=frozenset({
+        WeatherVariable.ALOFT_WIND,
+        WeatherVariable.ALOFT_TEMPERATURE,
+    }),
+)
+
+client = MsmClient(cache_dir="data")
+status = client.resolve_run(requirements, selected_run=None)
+forecast = client.prepare_run(status.selected_run, requirements)
+result = forecast.query(
+    AloftQuery(31.877, 131.449, valid_time, altitude_msl_m=4572)
+)
+```
+
+2回目以降は保存した`RunId`を`selected_run`へ渡してください。より新しい互換Runがあってもselected Runは変更されず、`update_available=True`だけが返ります。最新Runを使う場合のみ、呼出側が`latest_compatible_run`を明示的に`prepare_run`へ渡します。
+
+## CLI
+
+新API：
+
+```bash
+msm-weather resolve --time 2026-07-28T03:30:00Z
+msm-weather query-aloft \
+  --time 2026-07-28T03:30:00Z \
+  --lat 31.877 --lon 131.449 --altitude-m-msl 4572
+msm-weather query-surface \
+  --time 2026-07-28T03:30:00Z \
+  --lat 31.877 --lon 131.449
+msm-weather query-qnh \
+  --time 2026-07-28T03:30:00Z \
+  --lat 31.877 --lon 131.449 --elevation-m-msl 6 \
+  --terrain-cache data/static/model-terrain/v1/terrain.npz
+```
+
+従来互換：
+
+```bash
 msm-wind --date 2026-07-28 --discover-only
 msm-wind --date 2026-07-28 --work-dir data --output-dir outputs
 ```
 
-標準`venv`がない環境では `uv venv .venv` と `uv pip install --python .venv/bin/python -e ".[test]"` も使えます。`pygrib` wheelがない環境ではecCodesをOS/Condaで先に導入してください。
+既存の`*_surface.csv`、`*_pressure_levels.csv`、`*_15000ft.csv`、`*_to_15000ft.csv`とmetadataの名称・列を維持します。
 
-候補初期値を新しい順に調べ、対象日の全24時間をLsurf、全8時刻をL-pallで覆え、必要な分割ファイルがすべて存在する最新初期値を選びます。最新runの後半が未配信なら採用しません。ダウンロードは`.part`に保存して再開を試み、取得済みファイルは再利用します。
+## キャッシュ
 
-## 出力
+```text
+data/
+├─ raw/RUN_ID/                 生GRIB2、manifest、SHA-256
+├─ normalized/v1/RUN_ID/KEY/  正規化NetCDF
+├─ static/model-terrain/v1/   Pzs由来の静的地形
+└─ locks/
+```
 
-- `*_surface.csv`: 地上10 m U/V・風速・風向（24時刻）
-- `*_pressure_levels.csv`: 10気圧面のHGT/U/V（8時刻）。上側の補間根拠も保持
-- `*_15000ft.csv`: 4572 m MSLへ補間したU/V・風速・風向（8時刻）
-- `*_to_15000ft.csv`: HGT 4572 m以下の気圧面と補間面だけの上限付きデータ
-- `*_metadata.json`: 初期値、範囲、元URL、実格子境界、行数
+既存の`data/RUN_ID/*.bin`も再利用できます。破損ファイルは削除せず`.corrupt.TIMESTAMP`へ退避します。RISHへのアクセスを集中させないため、ダウンロードは逐次実行します。
 
-風向は気象学上の「吹いてくる方向」で `(270 - atan2(V,U)) mod 360`、0.1 m/s未満は空欄です。補間は風向でなくU/Vに行います。15,000 ftはMSLであり地面から4572 m上（AGL）ではありません。MSMは運航用の規制・観測資料を置き換えません。
+## MSM推定QNH
 
-## 出典・利用条件
+QNH推定には、Lsurfの地上気圧・気温・相対湿度に加え、気象庁MSMモデル地形`Pzs`が必要です。
 
-データ作成者は気象庁、無料配布元は京都大学生存圏研究所RISHです。
+```bash
+msm-weather prepare-terrain \
+  --input-grib /path/to/MSM_GPV_Rjp_Glm5km_Lm1-39_Pzs_FH00_grib2.bin \
+  --output data/static/model-terrain/v1/terrain.npz
+```
 
+RISHの通常の`gpv/original`一覧にはPzsがないため、公式ソースから別途入手してください。Pzsがない場合、風・気温・地上風は使用できますが、QNHだけが`MODEL_TERRAIN_UNAVAILABLE`になります。外部DEMや海面更正気圧へ暗黙にフォールバックしません。
+
+QNH結果には必ず`MSM-derived estimated QNH`、`ESTIMATED_QNH_NOT_OFFICIAL`、使用地形、地点標高、診断用MSLP、計算方式versionを付与します。
+
+## 出典
+
+- データ作成：気象庁
+- 無料配布：京都大学生存圏研究所RISH
 - [RISH 気象庁データ](http://database.rish.kyoto-u.ac.jp/arch/jmadata/)
-- [RISH GPV original](http://database.rish.kyoto-u.ac.jp/arch/jmadata/gpv-original.html)
-- [気象庁 MSMカタログ](https://www.data.jma.go.jp/suishin/cgi-bin/catalogue/make_product_page.cgi?id=MesModel)
-- [気象業務支援センター MSM仕様](https://www.jmbsc.or.jp/jp/online/file/f-online10200.html)
+- [JMBSC MSM仕様](https://www.jmbsc.or.jp/jp/online/file/f-online10200.html)
 
-RISHの案内ではデータベースは教育研究機関向けです。企業活動等で頻繁に必要とする場合は気象業務支援センターから直接購入するよう求めています。現行案内を確認し、アクセスを集中させないでください。
-
-## エラー処理
-
-- `No run completely covers`: 後半未配信、予報範囲外、または欠損。時間を置いて再実行
-- `Download failed`: ネットワーク/配布元障害。`.part`を残して再実行
-- `Missing HGT/U/V`: GRIB欠損・仕様変更。処理は不完全CSVを成功扱いにしない
-- RISHのHTTPS証明書検証に失敗する環境があるため、案内されているHTTPアーカイブを既定にしています
-
-## 2026-07-28実データ検証
-
-2026-07-27 23:25 JST時点で12 UTC runは後半未配信、09 UTC runの必要4ファイルは存在したため、09 UTCを自動選択しました。境界修正前のフルGRIB処理で地表24時刻、気圧面8時刻、15,000 ft補間8時刻が完走しました。座標抽出は浮動小数点誤差対策として微小halo取得後に丸め、要求矩形で厳密に再フィルタします。テストは29.7/35.2/128.5/134.75の包含と134.8125の除外を確認します。
+RISHの利用条件を確認し、企業活動等で頻繁に利用する場合は気象業務支援センターからの取得を検討してください。
