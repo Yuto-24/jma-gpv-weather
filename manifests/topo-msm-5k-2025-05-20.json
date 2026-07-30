@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "artifact_type": "jma_msm_gpv_interpolated_topography",
+  "terrain_source_type": "interpolated_msm_gpv_topography",
+  "model_terrain_version": "2025-05-20",
+  "model_terrain_version_basis": "JMA implementation notice: MSM changes including updated model terrain apply from the 2025-05-20 00UTC initial run (https://www.data.jma.go.jp/suishin/oshirase/pdf/20250509.pdf)",
+  "technical_reference": "https://www.data.jma.go.jp/suishin/jyouhou/pdf/648.pdf",
+  "distribution": {
+    "provider": "Japan Meteorological Business Support Center (JMBSC)",
+    "page_url": "https://www.jmbsc.or.jp/jp/online/c-onlineGsd.html",
+    "archive_url": "https://www.jmbsc-west.jp/jp/online/online-sample/joho-sample/chikeidata_joho648.zip",
+    "archive_file_name": "chikeidata_joho648.zip",
+    "archive_sha256": "6251a2494d8ac0ce6a26ee7c8a8dabc854010c5e9173d5b963ba4880791d242e",
+    "inner_archive_file_name": "202505_MSM地形データ.zip",
+    "inner_archive_sha256": "06f678659f8d01b7fc44fe3736da51d78cd398358eca51a34dedea8c9eec75bb"
+  },
+  "artifacts": {
+    "topography": {
+      "file_name": "TOPO.MSM_5K",
+      "sha256": "6ce16ae3781399dad2d618220d81fc41938aa54d693174c33ba347ad976f5250",
+      "size_bytes": 971620
+    },
+    "landsea": {
+      "file_name": "LANDSEA.MSM_5K",
+      "sha256": "322bbb1a4086174f7ac813accc391118a1fcd7d13c3135878f52e716f6870483",
+      "size_bytes": 971620
+    }
+  },
+  "license": {
+    "spdx": "CC-BY-4.0",
+    "url": "https://creativecommons.org/licenses/by/4.0/",
+    "source_file_name": "202505_MSM地形データ/README.txt",
+    "source_date": "令和7年4月",
+    "issuer": "気象庁",
+    "attribution": "東京大学准教授 山崎大氏作成の MERIT-DEM を気象庁が低解像度化した地形データ（CC BY 4.0）。生成する cache は九州範囲への切り出しと NPZ 圧縮を行った加工物です。"
+  },
+  "processing": {
+    "source_artifacts_modified": false,
+    "interpolated_from_model_grid": true
+  },
+  "source_grid": {
+    "projection": "regular_latitude_longitude",
+    "nx": 481,
+    "ny": 505,
+    "first_latitude": 47.6,
+    "first_longitude": 120.0,
+    "latitude_step": -0.05,
+    "longitude_step": 0.0625,
+    "encoding": "IEEE754 float32",
+    "byte_order": "big-endian",
+    "storage_order": "row-major:north-to-south:west-to-east"
+  }
+}

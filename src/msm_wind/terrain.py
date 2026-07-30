@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from .core import Bounds, _subset_message
+from .errors import TerrainValidationError
 from .interpolation import bilinear
 
 
@@ -71,15 +72,20 @@ class GridTerrainProvider:
 
     @classmethod
     def load(cls, path: str | Path):
-        with np.load(path) as data:
-            metadata = json.loads(str(data["metadata"]))
-            return cls(
-                np.asarray(data["values_m"]),
-                np.asarray(data["latitudes"]),
-                np.asarray(data["longitudes"]),
-                metadata["source"],
-                metadata.get("source_sha256"),
-            )
+        try:
+            with np.load(path) as data:
+                metadata = json.loads(str(data["metadata"]))
+                return cls(
+                    np.asarray(data["values_m"]),
+                    np.asarray(data["latitudes"]),
+                    np.asarray(data["longitudes"]),
+                    metadata["source"],
+                    metadata.get("source_sha256"),
+                )
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise TerrainValidationError(
+                f"cannot load Pzs terrain cache {path}: {exc}"
+            ) from exc
 
     def __call__(self, latitude: float, longitude: float) -> float | None:
         lat_axis = self.latitudes[:, 0]
