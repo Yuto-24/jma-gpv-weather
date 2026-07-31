@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Iterable
 
 import fitz
 import requests
@@ -16,7 +15,9 @@ SOURCE_DATE = "2026-07-30"
 SOURCE_COMPACT = "20260730"
 OUT = Path("jma-source-20260731")
 ORIG = OUT / "originals"
+PREV = OUT / "previews"
 ORIG.mkdir(parents=True, exist_ok=True)
+PREV.mkdir(parents=True, exist_ok=True)
 
 S = requests.Session()
 S.headers.update({"User-Agent": "Mozilla/5.0 JMA weather archive workflow"})
@@ -30,29 +31,37 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def fetch(url: str, path: Path, required_type: str | None = None) -> dict:
+def fetch(url: str, path: Path, required_prefix: str | None = None) -> dict[str, Any]:
     r = S.get(url, timeout=60)
-    print("GET", r.status_code, len(r.content), r.headers.get("content-type"), url)
+    ctype = r.headers.get("content-type") or ""
+    print("GET", r.status_code, len(r.content), ctype, url, flush=True)
     r.raise_for_status()
-    if required_type and required_type not in (r.headers.get("content-type") or ""):
-        raise RuntimeError(f"Unexpected content type for {url}: {r.headers.get('content-type')}")
+    if required_prefix and not ctype.startswith(required_prefix):
+        raise RuntimeError(f"Unexpected content type for {url}: {ctype}")
     path.write_bytes(r.content)
     return {
         "url": url,
-        "content_type": r.headers.get("content-type"),
+        "content_type": ctype,
         "last_modified": r.headers.get("last-modified"),
         "etag": r.headers.get("etag"),
+        "date": r.headers.get("date"),
     }
-
-
-def pdf_text(path: Path) -> str:
-    with fitz.open(path) as doc:
-        return "\n".join(page.get_text() for page in doc)
 
 
 def pdf_info(path: Path) -> tuple[int, list[list[float]]]:
     with fitz.open(path) as doc:
         return doc.page_count, [[p.rect.width, p.rect.height] for p in doc]
+
+
+def render_pdf(path: Path, stem: str) -> list[str]:
+    outputs: list[str] = []
+    with fitz.open(path) as doc:
+        for idx, page in enumerate(doc):
+            pix = page.get_pixmap(matrix=fitz.Matrix(3.0, 3.0), alpha=False)
+            out = PREV / f"{stem}_p{idx + 1}.png"
+            pix.save(out)
+            outputs.append(str(out.relative_to(OUT)))
+    return outputs
 
 
 def image_to_pdf(image: Path, pdf: Path) -> None:
@@ -69,15 +78,26 @@ def image_to_pdf(image: Path, pdf: Path) -> None:
         im.save(pdf, "PDF", resolution=200.0)
 
 
-def select_filename(values: list[str], product: str, cycle: str) -> str:
+def all_strings(value: Any) -> Iterable[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from all_strings(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from all_strings(v)
+
+
+def select_filename(strings: list[str], product: str, cycle: str) -> str:
     target = f"_{SOURCE_COMPACT}{cycle}0000_MET_CHT_JCI{product.lower()}_"
-    matches = [v for v in values if target in v]
+    matches = sorted({s for s in strings if target in s and (s.endswith(".png") or "_image" in s)})
     if len(matches) != 1:
-        raise RuntimeError(f"Expected exactly one {product} {cycle} file, got {matches}")
-    return matches[0]
+        raise RuntimeError(f"Expected exactly one {product} {cycle} image, got {matches}")
+    return matches[0].split("/")[-1]
 
 
-items: list[dict] = []
+items: list[dict[str, Any]] = []
 fixed = [
     (1, "AUPQ35", "aupq35_12.pdf"),
     (2, "AUPQ78", "aupq78_12.pdf"),
@@ -90,24 +110,23 @@ for ordinal, product, filename in fixed:
     url = f"https://www.jma.go.jp/bosai/numericmap/data/nwpmap/{filename}"
     path = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_12.pdf"
     headers = fetch(url, path, "application/pdf")
-    text = pdf_text(path)
-    print(product, text[-500:])
-    if not re.search(r"301200UTC\s+JUL\s+2026", text, re.I):
-        raise RuntimeError(f"{product} cycle/date validation failed: {text[-1000:]}")
     pages, dims = pdf_info(path)
     if pages != 1:
         raise RuntimeError(f"{product}: expected one page, got {pages}")
+    previews = render_pdf(path, f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_12")
     items.append({
         "ordinal": ordinal,
         "product_code": product,
         "cycle_utc": "12",
         "source_date_utc": SOURCE_DATE,
-        "issue_time_utc": headers.get("last_modified"),
-        "valid_time_utc": f"{SOURCE_DATE}T12:00:00Z",
+        "issue_time_utc": None,
+        "valid_time_utc": None,
+        "time_validation": "pending visual inspection of rendered official page",
         "official_source_url": url,
         "retrieval_time_utc": datetime.now(timezone.utc).isoformat(),
         "original_file": str(path.relative_to(OUT)),
         "normalized_pdf": str(path.relative_to(OUT)),
+        "preview_files": previews,
         "mime_type": "application/pdf",
         "page_count": pages,
         "page_dimensions": dims,
@@ -118,24 +137,31 @@ for ordinal, product, filename in fixed:
 
 list_url = "https://www.jma.go.jp/bosai/weather_map/data/list.json"
 r = S.get(list_url, timeout=60)
-print("GET", r.status_code, len(r.content), r.headers.get("content-type"), list_url)
+print("GET", r.status_code, len(r.content), r.headers.get("content-type"), list_url, flush=True)
 r.raise_for_status()
 listing = r.json()
-(OUT / "weather_map_list.json").write_text(json.dumps(listing, ensure_ascii=False, indent=2), encoding="utf-8")
+list_path = OUT / "weather_map_list.json"
+list_path.write_text(json.dumps(listing, ensure_ascii=False, indent=2), encoding="utf-8")
+strings = list(all_strings(listing))
+print("LIST STRINGS", len(strings), flush=True)
 
 surface_specs = [
-    (3, "ASAS", "12", listing["asia_monochrome"]["now"]),
-    (6, "ASAS", "18", listing["asia_monochrome"]["now"]),
-    (9, "FSAS24", "12", listing["asia_monochrome"]["ft24"]),
+    (3, "ASAS", "12", "asas"),
+    (6, "ASAS", "18", "asas"),
+    (9, "FSAS24", "12", "fsas24"),
 ]
-for ordinal, product, cycle, values in surface_specs:
-    source_name = select_filename(values, "asas" if product == "ASAS" else "fsas24", cycle)
+for ordinal, product, cycle, listing_product in surface_specs:
+    source_name = select_filename(strings, listing_product, cycle)
+    if not source_name.endswith(".png"):
+        source_name += ".png"
     png_url = f"https://www.jma.go.jp/bosai/weather_map/data/png/{source_name}"
     png_path = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}.png"
     headers = fetch(png_url, png_path, "image/png")
     pdf_path = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}.pdf"
     image_to_pdf(png_path, pdf_path)
     pages, dims = pdf_info(pdf_path)
+    preview_path = PREV / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}.png"
+    preview_path.write_bytes(png_path.read_bytes())
     items.append({
         "ordinal": ordinal,
         "product_code": product,
@@ -143,10 +169,12 @@ for ordinal, product, cycle, values in surface_specs:
         "source_date_utc": SOURCE_DATE,
         "issue_time_utc": source_name.split("_", 1)[0],
         "valid_time_utc": f"{SOURCE_DATE}T{cycle}:00:00Z" if product == "ASAS" else f"base {SOURCE_DATE}T{cycle}:00:00Z; +24 h",
+        "time_validation": "validated from official source filename; printed time pending visual confirmation",
         "official_source_url": png_url,
         "retrieval_time_utc": datetime.now(timezone.utc).isoformat(),
         "original_file": str(png_path.relative_to(OUT)),
         "normalized_pdf": str(pdf_path.relative_to(OUT)),
+        "preview_files": [str(preview_path.relative_to(OUT))],
         "mime_type": "image/png",
         "page_count": pages,
         "page_dimensions": dims,
@@ -162,9 +190,10 @@ manifest = {
     "run_date_jst": RUN_DATE,
     "source_date_utc": SOURCE_DATE,
     "retrieval_time_utc": datetime.now(timezone.utc).isoformat(),
+    "list_url": list_url,
+    "list_sha256": sha256(list_path),
     "items": items,
 }
-(OUT / f"{RUN_DATE}_JMA_WeatherCharts_SourceManifest.json").write_text(
-    json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-)
-print(json.dumps(manifest, ensure_ascii=False, indent=2))
+manifest_path = OUT / f"{RUN_DATE}_JMA_WeatherCharts_SourceManifest.json"
+manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+print(json.dumps(manifest, ensure_ascii=False, indent=2), flush=True)
