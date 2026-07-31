@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'tools/fetch_jma_daily_20260731.py'
+      - 'tools/fetch_jma_daily_20260731_v2.py'
       - '.github/workflows/temp-jma-weather-fetch.yml'
 
 permissions:
@@ -22,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --disable-pip-version-check requests pymupdf pillow
       - name: Fetch and validate official JMA charts
-        run: python tools/fetch_jma_daily_20260731.py
+        run: python tools/fetch_jma_daily_20260731_v2.py
       - name: Upload source package
         uses: actions/upload-artifact@v4
         with:
