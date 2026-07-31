@@ -1,0 +1,32 @@
+name: Temporary JMA Weather Fetch
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/fetch_jma_daily_20260731.py'
+      - '.github/workflows/temp-jma-weather-fetch.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check requests pymupdf pillow
+      - name: Fetch and validate official JMA charts
+        run: python tools/fetch_jma_daily_20260731.py
+      - name: Upload source package
+        uses: actions/upload-artifact@v4
+        with:
+          name: jma-source-20260731
+          path: jma-source-20260731
+          if-no-files-found: error
+          retention-days: 1
