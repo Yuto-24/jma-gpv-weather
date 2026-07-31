@@ -89,12 +89,14 @@ def all_strings(value: Any) -> Iterable[str]:
             yield from all_strings(v)
 
 
-def select_filename(strings: list[str], product: str, cycle: str) -> str:
+def select_surface_variants(strings: list[str], product: str, cycle: str) -> tuple[str, str]:
     target = f"_{SOURCE_COMPACT}{cycle}0000_MET_CHT_JCI{product.lower()}_"
-    matches = sorted({s for s in strings if target in s and (s.endswith(".png") or "_image" in s)})
-    if len(matches) != 1:
-        raise RuntimeError(f"Expected exactly one {product} {cycle} image, got {matches}")
-    return matches[0].split("/")[-1]
+    matches = sorted({s.split("/")[-1] for s in strings if target in s and (s.endswith(".png") or "_image" in s)})
+    mono = [s for s in matches if "JRcolor" not in s]
+    color = [s for s in matches if "JRcolor" in s]
+    if len(mono) != 1 or len(color) != 1:
+        raise RuntimeError(f"Expected one mono and one color {product} {cycle}: mono={mono}, color={color}")
+    return mono[0], color[0]
 
 
 items: list[dict[str, Any]] = []
@@ -125,7 +127,7 @@ for ordinal, product, filename in fixed:
         "official_source_url": url,
         "retrieval_time_utc": datetime.now(timezone.utc).isoformat(),
         "original_file": str(path.relative_to(OUT)),
-        "normalized_pdf": str(path.relative_to(OUT)),
+        "standard_pdf": str(path.relative_to(OUT)),
         "preview_files": previews,
         "mime_type": "application/pdf",
         "page_count": pages,
@@ -151,38 +153,51 @@ surface_specs = [
     (9, "FSAS24", "12", "fsas24"),
 ]
 for ordinal, product, cycle, listing_product in surface_specs:
-    source_name = select_filename(strings, listing_product, cycle)
-    if not source_name.endswith(".png"):
-        source_name += ".png"
-    png_url = f"https://www.jma.go.jp/bosai/weather_map/data/png/{source_name}"
-    png_path = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}.png"
-    headers = fetch(png_url, png_path, "image/png")
-    pdf_path = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}.pdf"
-    image_to_pdf(png_path, pdf_path)
-    pages, dims = pdf_info(pdf_path)
-    preview_path = PREV / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}.png"
-    preview_path.write_bytes(png_path.read_bytes())
+    mono_name, color_name = select_surface_variants(strings, listing_product, cycle)
+    mono_url = f"https://www.jma.go.jp/bosai/weather_map/data/png/{mono_name}"
+    color_url = f"https://www.jma.go.jp/bosai/weather_map/data/png/{color_name}"
+    mono_png = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}_mono.png"
+    color_png = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}_color.png"
+    mono_headers = fetch(mono_url, mono_png, "image/png")
+    color_headers = fetch(color_url, color_png, "image/png")
+    mono_pdf = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}_mono.pdf"
+    color_pdf = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}_color.pdf"
+    image_to_pdf(mono_png, mono_pdf)
+    image_to_pdf(color_png, color_pdf)
+    pages, dims = pdf_info(mono_pdf)
+    mono_preview = PREV / mono_png.name
+    color_preview = PREV / color_png.name
+    mono_preview.write_bytes(mono_png.read_bytes())
+    color_preview.write_bytes(color_png.read_bytes())
     items.append({
         "ordinal": ordinal,
         "product_code": product,
         "cycle_utc": cycle,
         "source_date_utc": SOURCE_DATE,
-        "issue_time_utc": source_name.split("_", 1)[0],
+        "issue_time_utc": mono_name.split("_", 1)[0],
         "valid_time_utc": f"{SOURCE_DATE}T{cycle}:00:00Z" if product == "ASAS" else f"base {SOURCE_DATE}T{cycle}:00:00Z; +24 h",
-        "time_validation": "validated from official source filename; printed time pending visual confirmation",
-        "official_source_url": png_url,
+        "time_validation": "validated from official filenames; printed time pending visual confirmation",
+        "official_source_url": mono_url,
+        "official_color_source_url": color_url,
         "retrieval_time_utc": datetime.now(timezone.utc).isoformat(),
-        "original_file": str(png_path.relative_to(OUT)),
-        "normalized_pdf": str(pdf_path.relative_to(OUT)),
-        "preview_files": [str(preview_path.relative_to(OUT))],
+        "original_file": str(mono_png.relative_to(OUT)),
+        "original_color_file": str(color_png.relative_to(OUT)),
+        "standard_pdf": str(mono_pdf.relative_to(OUT)),
+        "color_pdf": str(color_pdf.relative_to(OUT)),
+        "preview_files": [str(mono_preview.relative_to(OUT)), str(color_preview.relative_to(OUT))],
         "mime_type": "image/png",
         "page_count": pages,
         "page_dimensions": dims,
-        "byte_size": png_path.stat().st_size,
-        "sha256": sha256(png_path),
-        "normalized_pdf_sha256": sha256(pdf_path),
-        "source_filename": source_name,
-        "headers": headers,
+        "byte_size": mono_png.stat().st_size,
+        "sha256": sha256(mono_png),
+        "color_byte_size": color_png.stat().st_size,
+        "color_sha256": sha256(color_png),
+        "standard_pdf_sha256": sha256(mono_pdf),
+        "color_pdf_sha256": sha256(color_pdf),
+        "source_filename": mono_name,
+        "color_source_filename": color_name,
+        "headers": mono_headers,
+        "color_headers": color_headers,
     })
 
 items.sort(key=lambda x: x["ordinal"])
