@@ -13,6 +13,7 @@ from PIL import Image
 RUN_DATE = "2026-07-31"
 SOURCE_DATE = "2026-07-30"
 SOURCE_COMPACT = "20260730"
+SOURCE_TS = "20260730120000"
 OUT = Path("jma-source-20260731")
 ORIG = OUT / "originals"
 PREV = OUT / "previews"
@@ -31,11 +32,16 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def fetch(url: str, path: Path, required_prefix: str | None = None) -> dict[str, Any]:
+def get(url: str) -> requests.Response:
     r = S.get(url, timeout=60)
-    ctype = r.headers.get("content-type") or ""
-    print("GET", r.status_code, len(r.content), ctype, url, flush=True)
+    print("GET", r.status_code, len(r.content), r.headers.get("content-type"), url, flush=True)
+    return r
+
+
+def fetch(url: str, path: Path, required_prefix: str | None = None) -> dict[str, Any]:
+    r = get(url)
     r.raise_for_status()
+    ctype = r.headers.get("content-type") or ""
     if required_prefix and not ctype.startswith(required_prefix):
         raise RuntimeError(f"Unexpected content type for {url}: {ctype}")
     path.write_bytes(r.content)
@@ -46,6 +52,28 @@ def fetch(url: str, path: Path, required_prefix: str | None = None) -> dict[str,
         "etag": r.headers.get("etag"),
         "date": r.headers.get("date"),
     }
+
+
+def fetch_first(urls: list[str], path: Path, prefixes: tuple[str, ...]) -> tuple[dict[str, Any], str]:
+    attempts = []
+    for url in urls:
+        try:
+            r = get(url)
+            ctype = r.headers.get("content-type") or ""
+            attempts.append({"url": url, "status": r.status_code, "content_type": ctype, "bytes": len(r.content)})
+            if r.status_code == 200 and any(ctype.startswith(p) for p in prefixes):
+                path.write_bytes(r.content)
+                return ({
+                    "url": url,
+                    "content_type": ctype,
+                    "last_modified": r.headers.get("last-modified"),
+                    "etag": r.headers.get("etag"),
+                    "date": r.headers.get("date"),
+                    "attempts": attempts,
+                }, ctype)
+        except Exception as exc:
+            attempts.append({"url": url, "error": repr(exc)})
+    raise RuntimeError(f"No candidate succeeded: {json.dumps(attempts, ensure_ascii=False)}")
 
 
 def pdf_info(path: Path) -> tuple[int, list[list[float]]]:
@@ -76,6 +104,15 @@ def image_to_pdf(image: Path, pdf: Path) -> None:
         else:
             im = im.convert("RGB")
         im.save(pdf, "PDF", resolution=200.0)
+
+
+def normalize_to_pdf(src: Path, ctype: str, dest: Path) -> None:
+    if ctype.startswith("application/pdf"):
+        dest.write_bytes(src.read_bytes())
+    elif ctype.startswith("image/"):
+        image_to_pdf(src, dest)
+    else:
+        raise RuntimeError(f"Cannot normalize {ctype}")
 
 
 def all_strings(value: Any) -> Iterable[str]:
@@ -138,8 +175,7 @@ for ordinal, product, filename in fixed:
     })
 
 list_url = "https://www.jma.go.jp/bosai/weather_map/data/list.json"
-r = S.get(list_url, timeout=60)
-print("GET", r.status_code, len(r.content), r.headers.get("content-type"), list_url, flush=True)
+r = get(list_url)
 r.raise_for_status()
 listing = r.json()
 list_path = OUT / "weather_map_list.json"
@@ -147,35 +183,29 @@ list_path.write_text(json.dumps(listing, ensure_ascii=False, indent=2), encoding
 strings = list(all_strings(listing))
 print("LIST STRINGS", len(strings), flush=True)
 
-surface_specs = [
-    (3, "ASAS", "12", "asas"),
-    (6, "ASAS", "18", "asas"),
-    (9, "FSAS24", "12", "fsas24"),
-]
-for ordinal, product, cycle, listing_product in surface_specs:
-    mono_name, color_name = select_surface_variants(strings, listing_product, cycle)
+# ASAS 12 and 18: exact entries remain in the live history list.
+for ordinal, cycle in [(3, "12"), (6, "18")]:
+    mono_name, color_name = select_surface_variants(strings, "asas", cycle)
     mono_url = f"https://www.jma.go.jp/bosai/weather_map/data/png/{mono_name}"
     color_url = f"https://www.jma.go.jp/bosai/weather_map/data/png/{color_name}"
-    mono_png = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}_mono.png"
-    color_png = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}_color.png"
+    mono_png = ORIG / f"{ordinal:02d}_ASAS_{SOURCE_COMPACT}_{cycle}_mono.png"
+    color_png = ORIG / f"{ordinal:02d}_ASAS_{SOURCE_COMPACT}_{cycle}_color.png"
     mono_headers = fetch(mono_url, mono_png, "image/png")
     color_headers = fetch(color_url, color_png, "image/png")
-    mono_pdf = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}_mono.pdf"
-    color_pdf = ORIG / f"{ordinal:02d}_{product}_{SOURCE_COMPACT}_{cycle}_color.pdf"
+    mono_pdf = ORIG / f"{ordinal:02d}_ASAS_{SOURCE_COMPACT}_{cycle}_mono.pdf"
+    color_pdf = ORIG / f"{ordinal:02d}_ASAS_{SOURCE_COMPACT}_{cycle}_color.pdf"
     image_to_pdf(mono_png, mono_pdf)
     image_to_pdf(color_png, color_pdf)
     pages, dims = pdf_info(mono_pdf)
-    mono_preview = PREV / mono_png.name
-    color_preview = PREV / color_png.name
-    mono_preview.write_bytes(mono_png.read_bytes())
-    color_preview.write_bytes(color_png.read_bytes())
+    (PREV / mono_png.name).write_bytes(mono_png.read_bytes())
+    (PREV / color_png.name).write_bytes(color_png.read_bytes())
     items.append({
         "ordinal": ordinal,
-        "product_code": product,
+        "product_code": "ASAS",
         "cycle_utc": cycle,
         "source_date_utc": SOURCE_DATE,
         "issue_time_utc": mono_name.split("_", 1)[0],
-        "valid_time_utc": f"{SOURCE_DATE}T{cycle}:00:00Z" if product == "ASAS" else f"base {SOURCE_DATE}T{cycle}:00:00Z; +24 h",
+        "valid_time_utc": f"{SOURCE_DATE}T{cycle}:00:00Z",
         "time_validation": "validated from official filenames; printed time pending visual confirmation",
         "official_source_url": mono_url,
         "official_color_source_url": color_url,
@@ -184,7 +214,7 @@ for ordinal, product, cycle, listing_product in surface_specs:
         "original_color_file": str(color_png.relative_to(OUT)),
         "standard_pdf": str(mono_pdf.relative_to(OUT)),
         "color_pdf": str(color_pdf.relative_to(OUT)),
-        "preview_files": [str(mono_preview.relative_to(OUT)), str(color_preview.relative_to(OUT))],
+        "preview_files": [str((PREV / mono_png.name).relative_to(OUT)), str((PREV / color_png.name).relative_to(OUT))],
         "mime_type": "image/png",
         "page_count": pages,
         "page_dimensions": dims,
@@ -199,6 +229,67 @@ for ordinal, product, cycle, listing_product in surface_specs:
         "headers": mono_headers,
         "color_headers": color_headers,
     })
+
+# FSAS24 12: use the monthly exact-cycle archive. Try documented host aliases and PDF/PNG forms.
+month = SOURCE_TS[:6]
+mono_candidates = [
+    f"https://www.data.jma.go.jp/fcd/yoho/data/wxchart/quick/{month}/FSAS24_MONO_ASIA_{SOURCE_TS}.pdf",
+    f"https://www.data.jma.go.jp/yoho/data/wxchart/quick/{month}/FSAS24_MONO_ASIA_{SOURCE_TS}.pdf",
+    f"https://www.data.jma.go.jp/fcd/yoho/data/wxchart/quick/{month}/FSAS24_MONO_ASIA_{SOURCE_TS}.png",
+    f"https://www.data.jma.go.jp/yoho/data/wxchart/quick/{month}/FSAS24_MONO_ASIA_{SOURCE_TS}.png",
+    "https://www.jma.go.jp/jmh/wmapimgs/fsas24_12_large.png",
+]
+color_candidates = [
+    f"https://www.data.jma.go.jp/fcd/yoho/data/wxchart/quick/{month}/FSAS24_COLOR_ASIA_{SOURCE_TS}.pdf",
+    f"https://www.data.jma.go.jp/yoho/data/wxchart/quick/{month}/FSAS24_COLOR_ASIA_{SOURCE_TS}.pdf",
+    f"https://www.data.jma.go.jp/fcd/yoho/data/wxchart/quick/{month}/FSAS24_COLOR_ASIA_{SOURCE_TS}.png",
+    f"https://www.data.jma.go.jp/yoho/data/wxchart/quick/{month}/FSAS24_COLOR_ASIA_{SOURCE_TS}.png",
+]
+mono_raw = ORIG / f"09_FSAS24_{SOURCE_COMPACT}_12_mono.raw"
+color_raw = ORIG / f"09_FSAS24_{SOURCE_COMPACT}_12_color.raw"
+mono_headers, mono_type = fetch_first(mono_candidates, mono_raw, ("application/pdf", "image/"))
+color_headers, color_type = fetch_first(color_candidates, color_raw, ("application/pdf", "image/"))
+mono_ext = ".pdf" if mono_type.startswith("application/pdf") else ".png"
+color_ext = ".pdf" if color_type.startswith("application/pdf") else ".png"
+mono_source = mono_raw.with_suffix(mono_ext)
+color_source = color_raw.with_suffix(color_ext)
+mono_raw.rename(mono_source)
+color_raw.rename(color_source)
+mono_pdf = ORIG / f"09_FSAS24_{SOURCE_COMPACT}_12_mono.pdf"
+color_pdf = ORIG / f"09_FSAS24_{SOURCE_COMPACT}_12_color.pdf"
+normalize_to_pdf(mono_source, mono_type, mono_pdf)
+normalize_to_pdf(color_source, color_type, color_pdf)
+pages, dims = pdf_info(mono_pdf)
+mono_previews = render_pdf(mono_pdf, f"09_FSAS24_{SOURCE_COMPACT}_12_mono")
+color_previews = render_pdf(color_pdf, f"09_FSAS24_{SOURCE_COMPACT}_12_color")
+items.append({
+    "ordinal": 9,
+    "product_code": "FSAS24",
+    "cycle_utc": "12",
+    "source_date_utc": SOURCE_DATE,
+    "issue_time_utc": None,
+    "valid_time_utc": "2026-07-31T12:00:00Z",
+    "time_validation": "exact-cycle archive URL; printed time pending visual confirmation",
+    "official_source_url": mono_headers["url"],
+    "official_color_source_url": color_headers["url"],
+    "retrieval_time_utc": datetime.now(timezone.utc).isoformat(),
+    "original_file": str(mono_source.relative_to(OUT)),
+    "original_color_file": str(color_source.relative_to(OUT)),
+    "standard_pdf": str(mono_pdf.relative_to(OUT)),
+    "color_pdf": str(color_pdf.relative_to(OUT)),
+    "preview_files": mono_previews + color_previews,
+    "mime_type": mono_type,
+    "page_count": pages,
+    "page_dimensions": dims,
+    "byte_size": mono_source.stat().st_size,
+    "sha256": sha256(mono_source),
+    "color_byte_size": color_source.stat().st_size,
+    "color_sha256": sha256(color_source),
+    "standard_pdf_sha256": sha256(mono_pdf),
+    "color_pdf_sha256": sha256(color_pdf),
+    "headers": mono_headers,
+    "color_headers": color_headers,
+})
 
 items.sort(key=lambda x: x["ordinal"])
 manifest = {
