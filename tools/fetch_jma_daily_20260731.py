@@ -1,1 +1,1 @@
-# Superseded by fetch_jma_daily_20260731_v2.py.
+# Superseded. Trigger marker for exact FSAS24 retrieval.
