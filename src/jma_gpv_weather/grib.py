@@ -6,7 +6,7 @@ from typing import Iterable
 
 import numpy as np
 from .models import Bounds
-from .errors import MsmError
+from .errors import GpvError
 from .time_utils import UTC, target_window
 
 def _subset_message(message, bounds: Bounds):
@@ -22,7 +22,7 @@ def _subset_message(message, bounds: Bounds):
               (lon >= bounds.lon_min) & (lon <= bounds.lon_max))
     rows, columns = np.any(inside, axis=1), np.any(inside, axis=0)
     if not rows.any() or not columns.any():
-        raise MsmError("No grid points inside requested rectangle")
+        raise GpvError("No grid points inside requested rectangle")
     return values[np.ix_(rows, columns)], lat[np.ix_(rows, columns)], lon[np.ix_(rows, columns)]
 
 def _identity(message, pressure_levels):
@@ -62,7 +62,7 @@ def read_grib_records(
     try:
         import pygrib
     except ImportError as exc:
-        raise MsmError("pygrib is required; run: python -m pip install -e .") from exc
+        raise GpvError("pygrib is required; run: python -m pip install -e .") from exc
     requested_times = None if valid_times is None else {
         value.astimezone(UTC) for value in valid_times
     }
@@ -75,7 +75,7 @@ def read_grib_records(
         try:
             grib = pygrib.open(str(path))
         except Exception as exc:
-            raise MsmError(f"Cannot open {path}: {exc}") from exc
+            raise GpvError(f"Cannot open {path}: {exc}") from exc
         try:
             for message in grib:
                 identity = _identity(message, pressure_levels)
@@ -91,7 +91,7 @@ def read_grib_records(
                 try:
                     record = _subset_message(message, bounds)
                 except Exception as exc:
-                    raise MsmError(f"Failed to subset {path.name}: {exc}") from exc
+                    raise GpvError(f"Failed to subset {path.name}: {exc}") from exc
                 surface_variables = {"u", "v", "tmp_surface", "rh", "sp", "mslp"}
                 target = surface if variable in surface_variables and level in (0, 2, 10) else pressure
                 target[valid, level, variable] = record

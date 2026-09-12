@@ -9,12 +9,13 @@ from typing import Sequence
 
 import numpy as np
 from ..models import Bounds, RemoteFile, RunSelection
-from ..errors import MsmError
+from ..errors import GpvError, MsmError
 from ..grib import read_grib_records
 from ..sources import DataSource
 from ..sources.rish import RISH_BASE, RishSource
 from ..time_utils import UTC, JST, target_window, expected_valid_times
 from .spec import LEVELS_HPA, parse_listing, select_latest_complete_run
+from ._errors import msm_error_boundary
 
 TARGET_HEIGHT_M = 4572.0
 HEADER = ["valid_time_utc", "valid_time_jst", "level", "pressure_hpa", "height_m",
@@ -31,7 +32,7 @@ def discover_run(target_date: date, base_url: str = RISH_BASE, *, source: DataSo
         directory = source.directory_url(day)
         try:
             files.extend(parse_listing(source.read_listing(directory), directory))
-        except MsmError as exc:
+        except GpvError as exc:
             errors.append(str(exc))
     if not files:
         raise MsmError("Could not discover MSM files: " + " | ".join(errors))
@@ -125,7 +126,8 @@ def _write_pressure(paths, records, target_date, bounds):
 def write_outputs(output_dir: Path, target_date: date, bounds: Bounds,
                   selection: RunSelection, local_files: Sequence[Path]):
     output_dir.mkdir(parents=True, exist_ok=True)
-    surface, pressure = read_grib_records(local_files, target_date, bounds, pressure_levels=LEVELS_HPA)
+    with msm_error_boundary():
+        surface, pressure = read_grib_records(local_files, target_date, bounds, pressure_levels=LEVELS_HPA)
     prefix = f"msm_wind_{target_date:%Y%m%d}"
     surface_path = output_dir/f"{prefix}_surface.csv"
     pressure_path = output_dir/f"{prefix}_pressure_levels.csv"

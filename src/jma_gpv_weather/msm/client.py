@@ -13,6 +13,7 @@ from ..models import (
 from ..sources import DataSource
 from ..sources.rish import RISH_BASE, RishSource
 from ..time_utils import UTC
+from ._errors import msm_error_boundary
 from .spec import (
     DEFAULT_BOUNDS, LEVELS_HPA, MAX_FORECAST_HOURS, interpolation_bounds,
     parse_listing, required_valid_times, select_compatible_runs,
@@ -92,7 +93,8 @@ class MsmClient:
             raise SelectedRunCoverageError(
                 f"selected run {run} does not cover all required interpolation times"
             )
-        paths, hashes = acquire_files(selection.files, self.cache_dir, self.source.download)
+        with msm_error_boundary():
+            paths, hashes = acquire_files(selection.files, self.cache_dir, self.source.download)
         needed = required_valid_times(requirements)
         valid_times = tuple(
             sorted({value for values in needed.values() for value in values})
@@ -119,13 +121,14 @@ class MsmClient:
             else:
                 surface, pressure = {}, {}
             if not surface and not pressure:
-                surface, pressure = read_grib_records(
-                    paths,
-                    None,
-                    prepared_bounds,
-                    valid_times=valid_times,
-                    pressure_levels=LEVELS_HPA,
-                )
+                with msm_error_boundary():
+                    surface, pressure = read_grib_records(
+                        paths,
+                        None,
+                        prepared_bounds,
+                        valid_times=valid_times,
+                        pressure_levels=LEVELS_HPA,
+                    )
                 save_records(
                     normalized_path,
                     surface,

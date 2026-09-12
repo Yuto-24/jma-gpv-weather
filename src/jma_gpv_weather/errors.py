@@ -1,4 +1,8 @@
-class MsmError(RuntimeError):
+class GpvError(RuntimeError):
+    """Model-neutral base for JMA GPV acquisition and processing failures."""
+
+
+class MsmError(GpvError):
     """Base error for MSM acquisition and preparation failures."""
 
 

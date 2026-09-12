@@ -10,7 +10,7 @@ import pytest
 
 from jma_gpv_weather import AloftQuery, Bounds, MsmClient, RunId
 from jma_gpv_weather import cache, grib
-from jma_gpv_weather.errors import MsmError, MissingVariableError, SelectedRunCoverageError
+from jma_gpv_weather.errors import GpvError, MissingVariableError, SelectedRunCoverageError
 from jma_gpv_weather.models import RemoteFile
 from jma_gpv_weather.msm.spec import LEVELS_HPA, parse_listing
 from jma_gpv_weather.normalized import load_records, normalized_key, save_records
@@ -140,7 +140,7 @@ def test_listing_url_parsing_and_transport_errors_stay_separate(monkeypatch):
         raise OSError('offline')
 
     monkeypatch.setattr(rish, '_urlopen', fail)
-    with pytest.raises(MsmError, match='RISH directory listing failed'):
+    with pytest.raises(GpvError, match='RISH directory listing failed'):
         rish.read_listing(url, attempts=1)
 
 

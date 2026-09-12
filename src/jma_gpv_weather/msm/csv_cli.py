@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 
 from ..models import Bounds
-from ..errors import MsmError
+from ..errors import GpvError
 from ..sources.rish import RishSource
 from .csv import discover_run, write_outputs
 
@@ -48,7 +48,7 @@ def main(argv=None):
         print(f"complete: {args.output_dir}")
         for name, summary in metadata["outputs"].items(): print(f"  {name}: {summary['rows']:,} rows")
         return 0
-    except (MsmError, OSError, ValueError) as exc:
+    except (GpvError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr); return 1
 
 

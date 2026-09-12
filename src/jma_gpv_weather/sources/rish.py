@@ -5,7 +5,7 @@ import time
 import urllib.error
 import urllib.request
 
-from ..errors import MsmError
+from ..errors import GpvError
 from ..models import RemoteFile
 
 RISH_BASE = "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original"
@@ -26,7 +26,7 @@ def read_listing(url: str, attempts: int = 3) -> str:
             last = exc
             if attempt + 1 < attempts:
                 time.sleep(2**attempt)
-    raise MsmError(f"RISH directory listing failed: {url}: {last}")
+    raise GpvError(f"RISH directory listing failed: {url}: {last}")
 
 def download(remote: RemoteFile, destination: Path, attempts: int = 4) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -45,14 +45,14 @@ def download(remote: RemoteFile, destination: Path, attempts: int = 4) -> Path:
                         output.write(chunk)
             with partial.open("rb") as handle:
                 if handle.read(4) != b"GRIB":
-                    raise MsmError(f"Not a GRIB2 file: {remote.url}")
+                    raise GpvError(f"Not a GRIB2 file: {remote.url}")
             partial.replace(destination)
             return destination
-        except (OSError, urllib.error.URLError, MsmError) as exc:
+        except (OSError, urllib.error.URLError, GpvError) as exc:
             last = exc
             if attempt + 1 < attempts:
                 time.sleep(2**attempt)
-    raise MsmError(f"Download failed: {remote.url}: {last}")
+    raise GpvError(f"Download failed: {remote.url}: {last}")
 
 
 class RishSource:
