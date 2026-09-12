@@ -3,9 +3,13 @@ from datetime import date, datetime, timezone
 import numpy as np
 import pytest
 
-from msm_wind.core import (Bounds, RISH_BASE, RemoteFile, _subset_message,
-    expected_valid_times, interpolate_at_height, parse_listing,
-    select_latest_complete_run, target_window, wind_metrics)
+from jma_gpv_weather.models import Bounds, RemoteFile
+from jma_gpv_weather.sources.rish import RISH_BASE
+from jma_gpv_weather.grib import _subset_message
+from jma_gpv_weather.time_utils import expected_valid_times, target_window
+from jma_gpv_weather.msm.spec import parse_listing, select_latest_complete_run
+from jma_gpv_weather.msm.csv import interpolate_at_height, wind_metrics
+
 
 UTC = timezone.utc
 

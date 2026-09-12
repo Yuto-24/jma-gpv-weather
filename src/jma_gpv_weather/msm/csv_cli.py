@@ -5,11 +5,14 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from .core import Bounds, MsmError, discover_run, download, write_outputs
+from ..models import Bounds
+from ..errors import GpvError
+from ..sources.rish import RishSource
+from .csv import discover_run, write_outputs
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description="Download JMA MSM wind from RISH and create bounded CSV files")
+    parser = argparse.ArgumentParser(prog="jma-gpv-msm-csv", description="Download JMA MSM wind from RISH and create bounded CSV files")
     parser.add_argument("--date", required=True, type=date.fromisoformat, help="target JST date (YYYY-MM-DD)")
     parser.add_argument("--work-dir", type=Path, default=Path("data"))
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
@@ -27,7 +30,8 @@ def main(argv=None):
     if bounds.lat_min > bounds.lat_max or bounds.lon_min > bounds.lon_max:
         print("error: invalid bounds", file=sys.stderr); return 2
     try:
-        selection = discover_run(args.date)
+        source = RishSource()
+        selection = discover_run(args.date, source=source)
         print(f"selected run: {selection.run_utc.isoformat()}")
         for remote in selection.files: print(f"  {remote.url}")
         if args.discover_only: return 0
@@ -38,13 +42,13 @@ def main(argv=None):
             if destination.exists(): print(f"cached: {destination}")
             else:
                 print(f"downloading: {remote.url}")
-                download(remote, destination)
+                source.download(remote, destination)
             local.append(destination)
         metadata = write_outputs(args.output_dir, args.date, bounds, selection, local)
         print(f"complete: {args.output_dir}")
         for name, summary in metadata["outputs"].items(): print(f"  {name}: {summary['rows']:,} rows")
         return 0
-    except (MsmError, OSError, ValueError) as exc:
+    except (GpvError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr); return 1
 
 

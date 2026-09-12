@@ -1,6 +1,6 @@
-# JMA MSM weather query foundation
+# jma-gpv-weather
 
-RISH（京都大学生存圏研究所）のJMA MSM GRIB2を取得し、任意地点・時刻・高度の風と気温を問い合わせるPythonライブラリです。AutoNavLogの気象データ基盤として利用でき、従来の日単位CSV出力も維持しています。
+JMA GPV向けの取得・cache・補間基盤です。現在の対応モデルはMSM、取得元はRISH（京都大学生存圏研究所）のみです。MSM GRIB2を取得し、任意地点・時刻・高度の風と気温を問い合わせるPythonライブラリです。AutoNavLogの気象データ基盤として利用でき、従来の日単位CSV出力も維持しています。
 
 > このパッケージと出力値は、運航用の規制・観測・飛行場気象資料を代替しません。
 
@@ -31,11 +31,22 @@ pytest -q
 
 `pygrib`が利用できない環境ではecCodesをOSまたはCondaで導入してください。
 
+## 0.3.0への移行
+
+- distribution: `jma-msm-wind` → `jma-gpv-weather`
+- import: `msm_wind` → `jma_gpv_weather`
+- Weather CLI: `msm-weather` → `jma-gpv-weather`
+- MSM CSV CLI: `msm-wind` → `jma-gpv-msm-csv`
+
+旧distributionをアンインストールし、新distributionをインストールしてimportとCLI呼出しを更新してください。旧module・CLI alias・移行shimは提供しません。`MsmClient`、query/result型とMSMのRun固定、補間、cache key/path、provenance、エラー契約は維持しています。内部moduleの配置は[責務と拡張境界](docs/architecture.md)を参照してください。
+
+上空気温は`AloftQuery`の結果に含まれます。地上気温は従来どおりdecode・正規化cache・QNH入力で扱い、独立した地上気温queryは今回追加していません。GSM対応・coverage判定の拡張は後続のIssue #13です。
+
 ## Python API
 
 ```python
 from datetime import datetime, timezone
-from msm_wind import (
+from jma_gpv_weather import (
     AloftQuery,
     ForecastRequirements,
     MsmClient,
@@ -64,30 +75,30 @@ result = forecast.query(
 
 ## CLI
 
-新API：
+Weather query（現在はMSMのみ）：
 
 ```bash
-msm-weather resolve --time 2026-07-28T03:30:00Z
-msm-weather prepare \
+jma-gpv-weather resolve --time 2026-07-28T03:30:00Z
+jma-gpv-weather prepare \
   --time 2026-07-28T03:30:00Z \
   --variable aloft_wind --variable aloft_temperature
-msm-weather query-aloft \
+jma-gpv-weather query-aloft \
   --time 2026-07-28T03:30:00Z \
   --lat 31.877 --lon 131.449 --altitude-m-msl 4572
-msm-weather query-surface \
+jma-gpv-weather query-surface \
   --time 2026-07-28T03:30:00Z \
   --lat 31.877 --lon 131.449
-msm-weather query-qnh \
+jma-gpv-weather query-qnh \
   --time 2026-07-28T03:30:00Z \
   --lat 31.877 --lon 131.449 --elevation-m-msl 6 \
   --terrain-cache data/static/model-terrain/v1/terrain.npz
 ```
 
-従来互換：
+MSM日単位CSV：
 
 ```bash
-msm-wind --date 2026-07-28 --discover-only
-msm-wind --date 2026-07-28 --work-dir data --output-dir outputs
+jma-gpv-msm-csv --date 2026-07-28 --discover-only
+jma-gpv-msm-csv --date 2026-07-28 --work-dir data --output-dir outputs
 ```
 
 既存の`*_surface.csv`、`*_pressure_levels.csv`、`*_15000ft.csv`、`*_to_15000ft.csv`とmetadataの名称・列を維持します。
@@ -102,14 +113,14 @@ data/
 └─ locks/
 ```
 
-既存の`data/RUN_ID/*.bin`も再利用できます。破損ファイルは削除せず`.corrupt.TIMESTAMP`へ退避します。RISHへのアクセスを集中させないため、ダウンロードは逐次実行します。
+CSV CLIは既存の`data/RUN_ID/*.bin`を再利用します。Weather APIは`data/raw/RUN_ID/`を使用します。破損ファイルは削除せず`.corrupt.TIMESTAMP`へ退避します。RISHへのアクセスを集中させないため、ダウンロードは逐次実行します。
 
 ## MSM推定QNH
 
 QNH推定には、Lsurfの地上気圧・気温・相対湿度に加え、気象庁MSMモデル地形`Pzs`が必要です。
 
 ```bash
-msm-weather prepare-terrain \
+jma-gpv-weather prepare-terrain \
   --input-grib /path/to/MSM_GPV_Rjp_Glm5km_Lm1-39_Pzs_FH00_grib2.bin \
   --output data/static/model-terrain/v1/terrain.npz
 ```
@@ -126,3 +137,16 @@ QNH結果には必ず`MSM-derived estimated QNH`、`ESTIMATED_QNH_NOT_OFFICIAL`�
 - [JMBSC MSM仕様](https://www.jmbsc.or.jp/jp/online/file/f-online10200.html)
 
 RISHの利用条件を確認し、企業活動等で頻繁に利用する場合は気象業務支援センターからの取得を検討してください。
+
+## 検証
+
+通常テストはnetworkなしで実行できます。実データ受入は明示的に有効化します。
+
+```bash
+pytest -q
+JMA_GPV_REAL_MSM=1 JMA_GPV_REAL_CACHE=data/acceptance pytest -q -s tests/test_real_msm.py
+python -m pip install build
+python -m build
+```
+
+実データ受入はRISHの固定Run `2026-07-27 12Z`で、上空風・上空気温・地上風・地上気温、時空間補間、SHA-256/provenance、warm cache再利用を確認します。有効化後の通信・decode失敗はskipせず失敗になります。公式Pzsを用いたQNH受入は含みません（Issue #6）。Issue #8のTOPO opt-inもmainには未導入であり、今回の再編には取り込みません。

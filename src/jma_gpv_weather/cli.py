@@ -47,7 +47,8 @@ def _print(value):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="Query JMA MSM weather data from RISH", allow_abbrev=False
+        prog="jma-gpv-weather",
+        description="Query JMA GPV weather (currently MSM) from RISH", allow_abbrev=False
     )
     parser.add_argument("--cache-dir", type=Path, default=Path("data"))
     parser.add_argument("--lat-min", type=float, default=29.7)

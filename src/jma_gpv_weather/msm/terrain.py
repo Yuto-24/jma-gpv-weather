@@ -7,8 +7,10 @@ from pathlib import Path
 
 import numpy as np
 
-from .core import Bounds, _subset_message
-from .interpolation import bilinear
+from ..models import Bounds
+from ..grib import _subset_message
+from ..interpolation import bilinear
+from ._errors import msm_error_boundary
 
 
 @dataclass
@@ -26,7 +28,8 @@ class GridTerrainProvider:
         grib = pygrib.open(str(path))
         try:
             message = next(iter(grib))
-            values, lat, lon = _subset_message(message, bounds)
+            with msm_error_boundary():
+                values, lat, lon = _subset_message(message, bounds)
         finally:
             grib.close()
         digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()

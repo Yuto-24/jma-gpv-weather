@@ -1,8 +1,8 @@
-"""JMA MSM weather download, interpolation, and provenance tools."""
+"""JMA GPV weather download, interpolation, and provenance tools."""
 
-from .client import DEFAULT_BOUNDS, MsmClient
-from .core import Bounds
-from .dataset import PreparedForecast
+from .msm.client import DEFAULT_BOUNDS, MsmClient
+from .models import Bounds
+from .msm.dataset import PreparedForecast
 from .models import (
     AloftQuery,
     Availability,
@@ -14,7 +14,7 @@ from .models import (
     WeatherResult,
     WeatherVariable,
 )
-from .terrain import GridTerrainProvider
+from .msm.terrain import GridTerrainProvider
 
 __all__ = [
     "DEFAULT_BOUNDS",
@@ -33,4 +33,4 @@ __all__ = [
     "WeatherVariable",
 ]
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"

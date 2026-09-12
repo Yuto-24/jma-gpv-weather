@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Sequence
@@ -79,3 +80,50 @@ def wind_metrics(u_ms: float, v_ms: float) -> tuple[float, float, float | None]:
     speed_kt = speed_ms * 1.9438444924406
     direction = None if speed_ms < 0.1 else (270.0 - math.degrees(math.atan2(v_ms, u_ms))) % 360
     return speed_ms, speed_kt, direction
+
+
+def _time_bracket(times: Sequence[datetime], target: datetime):
+    ordered = sorted(set(times))
+    index = bisect_left(ordered, target)
+    if index < len(ordered) and ordered[index] == target:
+        return ordered[index], ordered[index]
+    if index == 0 or index == len(ordered):
+        return None
+    return ordered[index - 1], ordered[index]
+
+def _grid_bracket(lat: np.ndarray, lon: np.ndarray, latitude: float, longitude: float):
+    lat_axis = np.asarray(lat[:, 0], dtype=float)
+    lon_axis = np.asarray(lon[0, :], dtype=float)
+    if lat_axis[0] > lat_axis[-1]:
+        lat_axis = lat_axis[::-1]
+        reverse_lat = True
+    else:
+        reverse_lat = False
+    if lon_axis[0] > lon_axis[-1]:
+        lon_axis = lon_axis[::-1]
+        reverse_lon = True
+    else:
+        reverse_lon = False
+
+    def bracket(axis, value):
+        position = bisect_left(axis.tolist(), value)
+        if position < len(axis) and axis[position] == value:
+            return position, position
+        if position == 0 or position == len(axis):
+            return None
+        return position - 1, position
+
+    lat_indices = bracket(lat_axis, latitude)
+    lon_indices = bracket(lon_axis, longitude)
+    if lat_indices is None or lon_indices is None:
+        return None
+
+    def original(index, length, reverse):
+        return length - 1 - index if reverse else index
+
+    yi = tuple(original(i, len(lat_axis), reverse_lat) for i in lat_indices)
+    xi = tuple(original(i, len(lon_axis), reverse_lon) for i in lon_indices)
+    return yi, xi, (lat_axis[lat_indices[0]], lat_axis[lat_indices[1]]), (
+        lon_axis[lon_indices[0]],
+        lon_axis[lon_indices[1]],
+    )

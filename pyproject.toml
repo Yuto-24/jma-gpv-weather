@@ -3,9 +3,9 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jma-msm-wind"
-version = "0.2.1"
-description = "Download, cache, and query JMA MSM weather forecasts from the RISH archive"
+name = "jma-gpv-weather"
+version = "0.3.0"
+description = "Download, cache, and query JMA GPV weather forecasts (currently MSM) from the RISH archive"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -20,11 +20,13 @@ dependencies = [
 test = ["pytest>=8"]
 
 [project.scripts]
-msm-wind = "msm_wind.cli:main"
-msm-weather = "msm_wind.weather_cli:main"
+jma-gpv-msm-csv = "jma_gpv_weather.msm.csv_cli:main"
+jma-gpv-weather = "jma_gpv_weather.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["jma_gpv_weather*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["real_data: opt-in RISH MSM integration (network and GRIB download)"]

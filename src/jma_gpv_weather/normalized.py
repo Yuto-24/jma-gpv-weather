@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .core import Bounds, LEVELS_HPA
+from .models import Bounds
 
 SURFACE_VARIABLES = ("u", "v", "sp", "mslp", "tmp_surface", "rh")
 PRESSURE_VARIABLES = ("hgt", "u", "v", "tmp")
@@ -35,7 +35,9 @@ def _netcdf_times(values):
     )
 
 
-def save_records(path: Path, surface, pressure, metadata: dict) -> None:
+def save_records(
+    path: Path, surface, pressure, metadata: dict, *, pressure_levels: tuple[int, ...]
+) -> None:
     import xarray as xr
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,7 +69,7 @@ def save_records(path: Path, surface, pressure, metadata: dict) -> None:
             time_arrays = []
             for valid in pressure_times:
                 level_arrays = []
-                for level in LEVELS_HPA:
+                for level in pressure_levels:
                     key = (valid, level, name)
                     level_arrays.append(
                         np.full((len(lat), len(lon)), np.nan)
@@ -83,7 +85,7 @@ def save_records(path: Path, surface, pressure, metadata: dict) -> None:
             variables,
             coords={
                 "valid_time": _netcdf_times(pressure_times),
-                "pressure_hpa": np.asarray(LEVELS_HPA, dtype=int),
+                "pressure_hpa": np.asarray(pressure_levels, dtype=int),
                 "latitude": lat,
                 "longitude": lon,
             },
