@@ -3,18 +3,20 @@ from datetime import datetime, timezone
 import pytest
 import numpy as np
 
-from msm_wind.cache import cached_listing
-from msm_wind.client import interpolation_bounds, required_valid_times, select_compatible_runs
-from msm_wind.core import RISH_BASE, RemoteFile, RunSelection
-from msm_wind.interpolation import bilinear, temporal, vertical_at_height
-from msm_wind.models import ForecastRequirements, RunId, WeatherVariable
-from msm_wind.qnh import estimate_qnh
-from msm_wind import MsmClient
-from msm_wind.dataset import PreparedForecast
-from msm_wind.models import AloftQuery, Availability, EstimatedQnhQuery, SurfaceWindQuery
-from msm_wind.normalized import load_records, save_records
-from msm_wind.terrain import GridTerrainProvider
-from msm_wind.weather_cli import build_parser
+from jma_gpv_weather.cache import cached_listing
+from jma_gpv_weather.msm.spec import interpolation_bounds, required_valid_times, select_compatible_runs
+from jma_gpv_weather.models import RemoteFile, RunSelection
+from jma_gpv_weather.sources.rish import RISH_BASE
+from jma_gpv_weather.msm.spec import LEVELS_HPA
+from jma_gpv_weather.interpolation import bilinear, temporal, vertical_at_height
+from jma_gpv_weather.models import ForecastRequirements, RunId, WeatherVariable
+from jma_gpv_weather.msm.qnh import estimate_qnh
+from jma_gpv_weather import MsmClient
+from jma_gpv_weather.msm.dataset import PreparedForecast
+from jma_gpv_weather.models import AloftQuery, Availability, EstimatedQnhQuery, SurfaceWindQuery
+from jma_gpv_weather.normalized import load_records, save_records
+from jma_gpv_weather.msm.terrain import GridTerrainProvider
+from jma_gpv_weather.cli import build_parser
 
 UTC = timezone.utc
 
@@ -191,7 +193,7 @@ def test_prepared_forecast_never_connects_surface_to_aloft():
 def test_normalized_cache_round_trip(tmp_path):
     prepared = synthetic_prepared()
     path = tmp_path / "weather.nc"
-    save_records(path, prepared.surface, prepared.pressure, {"initial_time_utc": "test"})
+    save_records(path, prepared.surface, prepared.pressure, {"initial_time_utc": "test"}, pressure_levels=LEVELS_HPA)
     surface, pressure = load_records(path)
     restored = PreparedForecast(
         prepared.selection, surface, pressure, {}, lambda lat, lon: 100

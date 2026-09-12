@@ -94,3 +94,25 @@ class WeatherResult:
     reason_code: str | None = None
     warnings: tuple[str, ...] = ("NOT_FOR_OPERATIONAL_USE",)
     provenance: Provenance = field(default_factory=Provenance)
+
+
+@dataclass(frozen=True)
+class Bounds:
+    lat_min: float = 29.7
+    lat_max: float = 35.2
+    lon_min: float = 128.5
+    lon_max: float = 134.8
+
+@dataclass(frozen=True)
+class RemoteFile:
+    name: str
+    url: str
+    run_utc: datetime
+    kind: str
+    first_hour: int
+    last_hour: int
+
+@dataclass(frozen=True)
+class RunSelection:
+    run_utc: datetime
+    files: tuple[RemoteFile, ...]

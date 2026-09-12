@@ -8,9 +8,9 @@ from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
-from .core import RemoteFile, download
+from .models import RemoteFile
 
 
 def sha256_file(path: Path) -> str:
@@ -45,7 +45,8 @@ def validate_grib(path: Path) -> None:
 
 
 def acquire_files(
-    files: Iterable[RemoteFile], cache_dir: Path
+    files: Iterable[RemoteFile], cache_dir: Path,
+    downloader: Callable[[RemoteFile, Path], Path],
 ) -> tuple[tuple[Path, ...], dict[str, str]]:
     files = tuple(files)
     paths: list[Path] = []
@@ -65,7 +66,7 @@ def acquire_files(
                     )
                     destination.replace(corrupt)
             if not destination.exists():
-                download(remote, destination)
+                downloader(remote, destination)
             validate_grib(destination)
             hashes[remote.url] = sha256_file(destination)
         paths.append(destination)

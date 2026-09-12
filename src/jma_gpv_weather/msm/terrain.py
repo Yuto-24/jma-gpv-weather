@@ -7,8 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-from .core import Bounds, _subset_message
-from .interpolation import bilinear
+from ..models import Bounds
+from ..grib import _subset_message
+from ..interpolation import bilinear
 
 
 @dataclass
