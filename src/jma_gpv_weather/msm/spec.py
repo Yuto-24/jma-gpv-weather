@@ -15,7 +15,7 @@ FILE_RE = re.compile(
 )
 MAX_FORECAST_HOURS = 78
 DEFAULT_BOUNDS = Bounds()
-SURFACE_VARIABLES = {WeatherVariable.SURFACE_WIND, WeatherVariable.ESTIMATED_QNH}
+SURFACE_VARIABLES = {WeatherVariable.SURFACE_TEMPERATURE, WeatherVariable.SURFACE_WIND, WeatherVariable.ESTIMATED_QNH}
 PRESSURE_VARIABLES = {WeatherVariable.ALOFT_WIND, WeatherVariable.ALOFT_TEMPERATURE}
 
 def parse_listing(html: str, directory_url: str) -> list[RemoteFile]:
@@ -116,3 +116,29 @@ def select_compatible_runs(
                 RunSelection(run, tuple(sorted(chosen.values(), key=lambda item: item.name)))
             )
     return tuple(selections)
+
+
+def check_coverage(requirements, *, points=(), run=None, as_of=None):
+    """Offline contract for the current MSM API; legacy discovery is unchanged.
+
+    This API decodes 1000..500 hPa, a subset of the published MSM levels.
+    Coverage therefore describes the usable library capability, not unimplemented
+    fields higher than 500 hPa. MSL heights still require actual HGT.
+    """
+    from ..coverage import candidate_initial_times, evaluate_coverage
+    as_of = datetime.now(UTC) if as_of is None else as_of
+    if as_of.tzinfo is None:
+        raise ValueError("as_of must be timezone-aware")
+    candidates = ((run.initial_time_utc.astimezone(UTC),) if run is not None else
+                  candidate_initial_times(requirements, as_of, tuple(range(0, 24, 3)), 78))
+    needed = required_valid_times(requirements)
+    compatible = []
+    for initial in candidates:
+        limit = 78 if initial.hour in (0, 12) else 39
+        if initial.hour % 3 or initial.minute or initial.second or initial.microsecond or initial > as_of:
+            continue
+        if all(initial <= valid <= initial + timedelta(hours=limit)
+               for times in needed.values() for valid in times):
+            compatible.append(initial)
+    return evaluate_coverage(requirements, points, Bounds(22.4, 47.6, 120, 150),
+                             LEVELS_HPA, frozenset(WeatherVariable), compatible)

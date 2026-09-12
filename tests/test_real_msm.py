@@ -9,7 +9,7 @@ import pytest
 
 from jma_gpv_weather import (
     AloftQuery, Availability, Bounds, EstimatedQnhQuery, ForecastRequirements,
-    MsmClient, RunId, SurfaceWindQuery, WeatherVariable,
+    MsmClient, RunId, SurfaceWindQuery, SurfaceTemperatureQuery, WeatherVariable,
 )
 from jma_gpv_weather import grib
 from jma_gpv_weather.cache import verify_cache
@@ -40,9 +40,12 @@ def test_fixed_rish_run_queries_and_cache(tmp_path, monkeypatch):
         assert 0 <= aloft.values['wind_speed_ms'] < 150
         assert 180 < aloft.values['temperature_k'] < 330
         assert 0 <= surface.values['wind_speed_ms'] < 100
-        # main exposes surface temperature through the normalized fields/QNH input.
+        # New public query must exactly retain the pre-existing normalized value.
         temperature = prepared._surface_scalar('tmp_surface', 31.877, 131.449, valid)
         assert temperature is not None and 230 < temperature[0] < 330
+        public_temperature = prepared.query(SurfaceTemperatureQuery(31.877, 131.449, valid))
+        assert public_temperature.availability == Availability.AVAILABLE
+        assert public_temperature.values['temperature_k'] == temperature[0]
         assert aloft.provenance.initial_time_utc == run.initial_time_utc
         assert aloft.provenance.interpolation_method == 'vertical-linear,bilinear,time-linear'
         assert aloft.provenance.trace['u']

@@ -10,6 +10,7 @@ class WeatherVariable(str, Enum):
     ALOFT_WIND = "aloft_wind"
     ALOFT_TEMPERATURE = "aloft_temperature"
     SURFACE_WIND = "surface_wind"
+    SURFACE_TEMPERATURE = "surface_temperature"
     ESTIMATED_QNH = "estimated_qnh"
 
 
@@ -67,6 +68,18 @@ class SurfaceWindQuery:
     longitude: float
     valid_time: datetime
     requested_agl_m: float = 0.0
+
+
+@dataclass(frozen=True)
+class SurfaceTemperatureQuery:
+    latitude: float
+    longitude: float
+    valid_time: datetime
+
+
+@dataclass(frozen=True)
+class AloftTemperatureQuery(AloftQuery):
+    """Temperature-only query; does not require wind fields."""
 
 
 @dataclass(frozen=True)

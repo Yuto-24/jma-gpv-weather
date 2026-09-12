@@ -12,7 +12,7 @@ RISH_BASE = "http://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original"
 
 def _urlopen(url: str, timeout: int = 30, headers: dict[str, str] | None = None):
     request = urllib.request.Request(url, headers={
-        "User-Agent": "jma-gpv-weather/0.3 (+educational-research)", **(headers or {})
+        "User-Agent": "jma-gpv-weather/0.4 (+educational-research)", **(headers or {})
     })
     return urllib.request.urlopen(request, timeout=timeout)
 
