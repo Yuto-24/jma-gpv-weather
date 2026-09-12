@@ -34,6 +34,9 @@ def test_fixed_rish_run_queries_and_cache(tmp_path, monkeypatch):
     prepared = client.prepare_run(run, req, available_runs=runs)
     results = []
     for valid in times:
+        assert prepared.check_altitude_coverage(
+            AloftQuery(31.877, 131.449, valid, 4572)
+        ).availability == Availability.AVAILABLE
         aloft = prepared.query(AloftQuery(31.877, 131.449, valid, 4572))
         surface = prepared.query(SurfaceWindQuery(31.877, 131.449, valid))
         assert aloft.availability == surface.availability == Availability.AVAILABLE
@@ -67,5 +70,6 @@ def test_fixed_rish_run_queries_and_cache(tmp_path, monkeypatch):
     for valid in times:
         query = AloftQuery(31.877, 131.449, valid, 4572)
         assert asdict(warm.query(query)) == asdict(prepared.query(query))
+        assert warm.check_altitude_coverage(query) == prepared.check_altitude_coverage(query)
     print(json.dumps({'run': str(run), 'results': results, 'cache': verification},
                      default=str, sort_keys=True))

@@ -1,12 +1,12 @@
 from __future__ import annotations
 from typing import Callable
-from .spec import LEVELS_HPA
+from .spec import LEVELS_HPA, required_valid_times
 from ..models import RunSelection
 from ..errors import InvalidQueryError
 from ..interpolation import wind_metrics
 from ..models import (
     AloftQuery, AloftTemperatureQuery, Availability, EstimatedQnhQuery,
-    SurfaceWindQuery, SurfaceTemperatureQuery, WeatherResult,
+    SurfaceWindQuery, SurfaceTemperatureQuery, WeatherResult, ForecastRequirements, WeatherVariable,
 )
 from ..weather import WeatherDataset, RecordMap
 from .qnh import estimate_qnh
@@ -17,6 +17,17 @@ class PreparedForecast(WeatherDataset):
     def __init__(self, selection, surface, pressure, source_hashes, terrain_provider=None):
         super().__init__(selection, surface, pressure, source_hashes, pressure_levels=LEVELS_HPA)
         self.terrain_provider = terrain_provider
+
+    def check_altitude_coverage(self, query: AloftQuery) -> WeatherResult:
+        """Public post-prepare HGT coverage; data failures never mean range exclusion."""
+        try:
+            self._validate_altitude_query(query)
+        except ValueError as exc:
+            raise InvalidQueryError(str(exc)) from exc
+        needed = required_valid_times(ForecastRequirements(
+            (query.valid_time,), frozenset({WeatherVariable.ALOFT_TEMPERATURE})
+        ))
+        return self._check_altitude_coverage(query, needed["L-pall"])
 
     def query(self, query):
         if query.valid_time.tzinfo is None:

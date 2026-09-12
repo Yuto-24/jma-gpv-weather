@@ -50,6 +50,10 @@ pygrib、NumPy、xarray/h5netcdfの既存処理を使い、演算順序を維持
 `MsmClient.check_coverage`と`GsmClient.check_coverage`はnetwork不要の別契約。
 `OUTSIDE_SPEC`、`COVERED`、`REQUIRES_HGT`を区別する。気圧面のMSL高度を固定値と仮定せず、
 高度を指定した要求の実bracketはHGT取得後に確認する。
+両モデルのprepared forecastは`check_altitude_coverage(query)`を公開し、共通`WeatherDataset`で
+必要な全時間端・格子点・気圧面・対象fieldを検証する。全データが正常な場合だけ
+`ALTITUDE_OUTSIDE_HGT_RANGE`を返し、欠測・非有限値は`SOURCE_VALUE_UNAVAILABLE`として区別する。
+既存queryの値・provenance・errorは変更しない。
 詳細な仕様根拠・制限・使用例は[GSM日本域の設計・調査記録](gsm-japan.md)を参照。
 
 GSMは`GsmCoverageError`、`GsmDiscoveryError`、`GsmRunUnavailableError`、`GsmProcessingError`で

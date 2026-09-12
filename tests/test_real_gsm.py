@@ -38,6 +38,7 @@ def test_fixed_gsm_run_queries_hashes_and_warm_cache(tmp_path, monkeypatch):
     results = []
     for valid in times:
         q = AloftQuery(31.877, 131.449, valid, 4572)
+        assert forecast.check_altitude_coverage(q).availability == Availability.AVAILABLE
         aloft = forecast.query(q)
         temperature = forecast.query(AloftTemperatureQuery(q.latitude,q.longitude,valid,4572))
         surface = forecast.query(SurfaceTemperatureQuery(q.latitude,q.longitude,valid))
@@ -104,6 +105,8 @@ def test_fixed_gsm_run_queries_hashes_and_warm_cache(tmp_path, monkeypatch):
     for valid in times:
         for q in (AloftQuery(31.877,131.449,valid,4572),SurfaceTemperatureQuery(31.877,131.449,valid)):
             assert asdict(warm.query(q)) == asdict(forecast.query(q))
+            if isinstance(q, AloftQuery):
+                assert warm.check_altitude_coverage(q) == forecast.check_altitude_coverage(q)
     print(json.dumps({'run':str(run),'results':results,'source_hashes':forecast.source_hashes,
                       'direct_850hpa':raw,'direct_surface_k':direct_surface,
                       'raw_files':len(verification['files']),'warm_cache':'identical'},sort_keys=True))

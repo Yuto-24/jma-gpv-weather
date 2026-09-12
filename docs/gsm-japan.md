@@ -102,13 +102,55 @@ MSMの従来の`NoCompatibleRunError`、`SelectedRunCoverageError`等はその�
 prepare後の上空queryは、各時間端・各水平格子点の実HGTで高度を挟む。
 格子点のHGTと完全一致する場合も補間可能。最下端より下・最上端より上へ外挿しない。
 挟めない場合の`VERTICAL_BRACKET_UNAVAILABLE`はデータを用いたquery結果であり、
-`OUTSIDE_SPEC`とは別概念。欠測や補間不可を自動でモデルfallbackへ変換するpolicyは存在しない。
+`OUTSIDE_SPEC`とは別概念。高度範囲外と欠測の区別には、以下のpost-prepare公開APIを使用する。
 **MSL高度だけで完全なyes/noをdownload前に保証することは、公式の気圧面仕様からはできない**。
 この条件付き判定は後続#161にも保持する必要がある。
 
 MSMのoffline契約は既存APIの実装範囲を正直に示すため、使用可能面を既存の1000–500 hPaに限定する。
 公式MSMの配信自体は100 hPaまであるが、既存decode/queryの面集合を今回変更しない。
 MSMのRun/horizonは00/12 UTCが78 h、他の3時間毎のRunが39 h、domainは22.4–47.6°N/120–150°E。
+
+## Post-prepare高度coverage
+
+MSM/GSM双方で`prepared.check_altitude_coverage(query)`を使用する。
+既存の`WeatherResult`を返し、`kind="altitude_coverage"`、次の3状態を区別する。
+
+| 結果 | 意味 |
+| --- | --- |
+| `availability=AVAILABLE`、`reason_code=None` | 必要な全時間端・全水平格子点で対象高度が実HGT範囲内 |
+| `UNAVAILABLE`、`ALTITUDE_OUTSIDE_HGT_RANGE` | 全必要データが正常で、少なくとも1つの時間端/格子点で実HGT範囲外 |
+| `UNAVAILABLE`、`SOURCE_VALUE_UNAVAILABLE` | 欠測・非有限値・不整合などにより判定不能。高度範囲外ではない |
+
+```python
+query = AloftQuery(latitude, longitude, valid_time, altitude_msl_m)
+coverage = prepared.check_altitude_coverage(query)
+# 後続#161で高度不足を示すsignalは、このreasonだけ。
+altitude_outside = coverage.reason_code == "ALTITUDE_OUTSIDE_HGT_RANGE"
+```
+
+`AloftQuery`ではHGTとU/V/T、`AloftTemperatureQuery`ではHGTとTを確認する。
+従来の`AloftQuery`のTは任意だったが、新しいcoverage確認では全気象値を要求する保守的な契約。
+使用する全気圧面（MSMは既存10面、GSMは16面）の対象fieldが必要。
+モデル既存spec関数で公式の時間端を求め、実queryの時間bracketと一致することを検証する。
+端点全体の欠測を、遠い時刻への補間で隠さない。GSMのFH132以降は6時間間隔を使用する。
+
+水平格子は既存の`_grid_bracket`と同じ点を使う。完全一致する時刻/格子点ではその端点/点だけが必要。
+必要点で全fieldが有限、格子が整合し、降順気圧面のHGTが厳密に増加する場合に範囲を確定する。
+最下端・最上端を含むHGT完全一致はcoverage内。外挿しない。
+1点でも範囲外なら、他の全必要データを検証した後で高度範囲外を返す。
+欠測、NaN/Inf、欠けたpressure level、不正なHGT profileや格子不整合が1つでもあれば、
+別の点の範囲外より`SOURCE_VALUE_UNAVAILABLE`を優先する。
+query対象外の格子点/時間の欠測は判定に混ぜない。
+
+想定外の処理例外を高度範囲外へ変換しない。GSMは既存のprocessing境界と同様に
+`GsmProcessingError`、MSMは元の処理例外を伝播する。入力不正はMSMで`InvalidQueryError`、
+GSMで`ValueError`。prepare時のdownload/decode/cache失敗も従来のエラーのまま。
+このAPIはprepare済みrecordsの読取りのみで、cacheへアクセスしない。
+
+共通の検証は既存`WeatherDataset`内に置き、両prepared classはモデルの時間端を渡すだけ。
+既存`query`の数値・補間順序・provenance・`VERTICAL_BRACKET_UNAVAILABLE`は変更しない。
+後続#161はprivate methodや内部recordへアクセスせず、新しいAPIの結果で高度不足だけを識別できる。
+実際のモデルfallback policyは本PRに含めない。offlineの`REQUIRES_HGT`も維持する。
 
 ## Run固定とWeather API
 
@@ -204,7 +246,7 @@ JMA_GPV_REAL_GSM=1 JMA_GPV_REAL_MSM=1 JMA_GPV_REAL_CACHE=/tmp/gpv-acceptance \
 実行時のtest件数、package検証、Independent Reviewの結果はPR本文にも記録する。
 上記固定Runが将来RISHで取得不能になっても別Run/sourceへ暗黙に置換しない。
 
-追加の回帰・配布確認（Python 3.12）:
+初回GSM実装時の回帰・配布確認（Python 3.12、高度coverage追加前）:
 
 - 通常テスト: 95 passed, 2 skipped（skipは実データopt-inの2件）。
 - 新規cacheでGSM→MSMの実データtestを同一processで連続実行: 2 passed。
@@ -233,3 +275,20 @@ listing/通信失敗は引き続き例外として伝播するようにした。
 新規cacheでGSM→MSMの実データ受入2 passedを確認した。
 Reviewer自身の独立buildはsetuptools/wheel・ensurepip不足により未完了であり、
 実装担当の成功結果とは区別する。
+
+
+### Post-prepare高度coverage追加後の確認
+
+Python 3.12のeditable環境と、sdistから隔離buildしたwheelの別install環境で、
+それぞれ通常テスト178 passed / 2 skipped。高度coverageの追加83件では、
+完全一致・上下範囲外・時間端/各水平格子点の片側範囲外、欠測/NaN/Inf、
+pressure level不足、格子/HGT profile不整合、処理例外、offline契約維持を確認した。
+
+固定GSM/MSM実データ受入は両環境で2 passed。初回に取得済みの実データcacheを再利用し、
+4572 m MSLのcoverage内判定と、download/decode禁止のwarm cache判定一致を確認した。
+追加前後の2モデルの出力JSON（数値・provenance・source hash）は完全一致した。
+今回の再検証を新規download/cold decodeの証拠とはしていない。
+
+GPT-5.6 Solが追加差分をIndependent Reviewし、指摘なし。
+Reviewer独立実行は通常178 passed / 2 skipped、focused 141 passed、実データ2 passed。
+変更前後の実データJSON完全一致と、331高度でcoverageと既存queryの整合も確認した。

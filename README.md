@@ -192,3 +192,11 @@ GSMはlisting失敗を`GsmDiscoveryError`、取得可能な互換Runが見つか
 これらは`GsmCoverageError`ではありません。MSMの既存`discover_runs()`は互換性を維持するため、
 listing失敗を集約する従来動作のままです。MSMの`NoCompatibleRunError`を仕様外へ読み替えず、
 独立した`MsmClient.check_coverage()`を使用してください。モデル自動切替は実装していません。
+
+
+`REQUIRES_HGT`の後は、MSM/GSM共通の
+`forecast.check_altitude_coverage(AloftQuery(...))`で実HGTによる高度coverageを確認できます。
+`AVAILABLE`は範囲内、`ALTITUDE_OUTSIDE_HGT_RANGE`は全必要データが正常な場合の範囲外、
+`SOURCE_VALUE_UNAVAILABLE`は欠測・不正値等による判定不能です。
+後続のモデル選択では高度不足を示すreasonだけを識別でき、private methodは不要です。
+既存`query()`の結果や`VERTICAL_BRACKET_UNAVAILABLE`の意味は維持しています。

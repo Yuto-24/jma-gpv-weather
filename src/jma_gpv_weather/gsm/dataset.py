@@ -4,7 +4,7 @@ import math
 
 from ..errors import GsmProcessingError
 from ..models import (AloftQuery, AloftTemperatureQuery, SurfaceTemperatureQuery,
-                      Availability, WeatherResult)
+                      Availability, WeatherResult, ForecastRequirements, WeatherVariable)
 from ..weather import WeatherDataset
 from .spec import LEVELS_HPA, required_valid_times
 
@@ -14,6 +14,21 @@ class PreparedGsmForecast(WeatherDataset):
     def __init__(self, selection, surface, pressure, source_hashes, requirements):
         super().__init__(selection, surface, pressure, source_hashes, pressure_levels=LEVELS_HPA)
         self.requirements = requirements
+
+    def check_altitude_coverage(self, query: AloftQuery) -> WeatherResult:
+        """Same post-prepare contract as MSM, using GSM's pressure time schedule."""
+        self._validate_altitude_query(query)
+        needed = required_valid_times(ForecastRequirements(
+            (query.valid_time,), frozenset({WeatherVariable.ALOFT_TEMPERATURE})
+        ), self.selection.run_utc)
+        prepared = required_valid_times(self.requirements, self.selection.run_utc)
+        times = () if needed is None else needed["L-pall"]
+        if not set(times) <= set(prepared.get("L-pall", ())):
+            times = ()
+        try:
+            return self._check_altitude_coverage(query, times)
+        except (ValueError, IndexError, KeyError) as exc:
+            raise GsmProcessingError(f"GSM altitude coverage processing failed: {exc}") from exc
 
     def _provenance(self, method, trace=None):
         result = super()._provenance(method, trace)

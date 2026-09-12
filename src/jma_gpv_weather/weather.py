@@ -6,7 +6,7 @@ import numpy as np
 from .interpolation import (
     _grid_bracket, _time_bracket, bilinear, temporal, vertical_at_height, wind_metrics,
 )
-from .models import AloftQuery, Availability, Provenance, WeatherResult
+from .models import AloftQuery, AloftTemperatureQuery, Availability, Provenance, WeatherResult
 
 RecordMap = Mapping[tuple[datetime, int, str], tuple[np.ndarray, np.ndarray, np.ndarray]]
 
@@ -27,6 +27,98 @@ class WeatherDataset:
             interpolation_method=method,
             trace=trace or {},
         )
+
+    @staticmethod
+    def _validate_altitude_query(query):
+        if not isinstance(query, AloftQuery):
+            raise ValueError("altitude coverage requires an aloft query")
+        if query.valid_time.tzinfo is None:
+            raise ValueError("valid_time must be timezone-aware")
+        if not np.isfinite([query.latitude, query.longitude, query.altitude_msl_m]).all():
+            raise ValueError("query coordinates and altitude must be finite")
+
+    def _check_altitude_coverage(self, query, valid_times):
+        """Classify real HGT only after validating every required source column.
+
+        Model callers supply official pressure time endpoints. Query arithmetic,
+        filtering, legacy unavailable reasons and provenance remain unchanged.
+        """
+        names = ("tmp",) if isinstance(query, AloftTemperatureQuery) else ("u", "v", "tmp")
+        trace = {"pressure_levels_hpa": self.pressure_levels, "variables": names, "columns": []}
+
+        def result(reason=None, detail=None):
+            return WeatherResult(
+                Availability.AVAILABLE if reason is None else Availability.UNAVAILABLE,
+                "altitude_coverage", {"altitude_msl_m": query.altitude_msl_m},
+                reason_code=reason,
+                provenance=self._provenance(
+                    "pressure-level-hgt-range", {**trace, **({"detail": detail} if detail else {})}
+                ),
+            )
+
+        def unavailable(detail):
+            return result("SOURCE_VALUE_UNAVAILABLE", detail)
+
+        if not valid_times or not self.pressure_levels:
+            return unavailable("TIME_OR_LEVELS_NOT_PREPARED")
+        expected_bracket = (valid_times[0], valid_times[-1])
+        for name in names:
+            actual = _time_bracket([k[0] for k in self.pressure if k[2] == name], query.valid_time)
+            if actual != expected_bracket:
+                return unavailable("PRESSURE_TIME_ENDPOINT_UNAVAILABLE")
+
+        outside = False
+        for valid in valid_times:
+            sample = next((r for k, r in self.pressure.items() if k[0] == valid and k[2] == names[0]), None)
+            if sample is None:
+                return unavailable("PRESSURE_TIME_ENDPOINT_UNAVAILABLE")
+            _, lat, lon = sample
+            lat, lon = np.asarray(lat), np.asarray(lon)
+            if (lat.ndim != 2 or lon.shape != lat.shape or not lat.size
+                    or not np.isfinite(lat).all() or not np.isfinite(lon).all()
+                    or not np.array_equal(lat, np.broadcast_to(lat[:, :1], lat.shape))
+                    or not np.array_equal(lon, np.broadcast_to(lon[:1, :], lon.shape))):
+                return unavailable("INVALID_PRESSURE_GRID")
+            for axis in (lat[:, 0], lon[0, :]):
+                delta = np.diff(axis)
+                if not ((delta > 0).all() or (delta < 0).all()):
+                    return unavailable("INVALID_PRESSURE_GRID")
+            grid = _grid_bracket(lat, lon, query.latitude, query.longitude)
+            if grid is None:
+                return unavailable("LOCATION_NOT_PREPARED")
+            yi, xi = grid[:2]
+            indices = np.ix_(sorted(set(yi)), sorted(set(xi)))
+            heights = []
+            for level in self.pressure_levels:
+                for name in ("hgt", *names):
+                    record = self.pressure.get((valid, level, name))
+                    if record is None:
+                        return unavailable(f"MISSING_PRESSURE_FIELD:{valid.isoformat()}:{level}:{name}")
+                    values, field_lat, field_lon = record
+                    # Do not reinterpret mismatched grids as a smaller HGT range.
+                    if (np.shape(values) != lat.shape or not np.array_equal(field_lat, lat)
+                            or not np.array_equal(field_lon, lon)):
+                        return unavailable("INCONSISTENT_PRESSURE_GRID")
+                    corners = np.asarray(np.ma.filled(values, np.nan))[indices]
+                    if not np.isfinite(corners).all():
+                        return unavailable(f"NONFINITE_PRESSURE_FIELD:{valid.isoformat()}:{level}:{name}")
+                    if name == "hgt":
+                        heights.append(corners)
+            heights = np.stack(heights)
+            # Pressure levels are descending; valid HGT columns strictly increase.
+            if not (np.diff(heights, axis=0) > 0).all():
+                return unavailable("INVALID_HGT_PROFILE")
+            outside |= bool(((query.altitude_msl_m < heights[0])
+                             | (query.altitude_msl_m > heights[-1])).any())
+            for row, y in enumerate(sorted(set(yi))):
+                for column, x in enumerate(sorted(set(xi))):
+                    trace["columns"].append({
+                        "valid_time": valid.isoformat(), "grid": [float(lat[y, x]), float(lon[y, x])],
+                        "lowest_height_m": float(heights[0, row, column]),
+                        "highest_height_m": float(heights[-1, row, column]),
+                    })
+        # An early out-of-range column must not hide a later data failure.
+        return result("ALTITUDE_OUTSIDE_HGT_RANGE" if outside else None)
 
     def _surface_scalar(self, variable: str, latitude: float, longitude: float, target: datetime):
         times = [key[0] for key in self.surface if key[2] == variable]
