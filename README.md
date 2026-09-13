@@ -1,6 +1,6 @@
 # jma-gpv-weather
 
-JMA GPV向けの取得・cache・補間基盤です。現在の対応モデルはMSM、取得元はRISH（京都大学生存圏研究所）のみです。MSM GRIB2を取得し、任意地点・時刻・高度の風と気温を問い合わせるPythonライブラリです。AutoNavLogの気象データ基盤として利用でき、従来の日単位CSV出力も維持しています。
+JMA GPV向けの取得・cache・補間基盤です。対応モデルはMSMとGSM日本域、取得元はRISH（京都大学生存圏研究所）のみです。GRIB2を取得し、任意地点・時刻・高度の風と気温を問い合わせるPythonライブラリです。AutoNavLogの気象データ基盤として利用でき、従来の日単位CSV出力も維持しています。
 
 > このパッケージと出力値は、運航用の規制・観測・飛行場気象資料を代替しません。
 
@@ -40,7 +40,7 @@ pytest -q
 
 旧distributionをアンインストールし、新distributionをインストールしてimportとCLI呼出しを更新してください。旧module・CLI alias・移行shimは提供しません。`MsmClient`、query/result型とMSMのRun固定、補間、cache key/path、provenance、エラー契約は維持しています。内部moduleの配置は[責務と拡張境界](docs/architecture.md)を参照してください。
 
-上空気温は`AloftQuery`の結果に含まれます。地上気温は従来どおりdecode・正規化cache・QNH入力で扱い、独立した地上気温queryは今回追加していません。GSM対応・coverage判定の拡張は後続のIssue #13です。
+0.4.0では`GsmClient`、両モデル共通の`SurfaceTemperatureQuery`（2 m AGL気温）と`AloftTemperatureQuery`（気温のみ）、network不要の`check_coverage()`を追加しました。`AloftQuery`の既存の風・気温結果、MSMの数値・cache path・error契約は維持します。
 
 ## Python API
 
@@ -110,7 +110,8 @@ data/
 ├─ raw/RUN_ID/                 生GRIB2、manifest、SHA-256
 ├─ normalized/v1/RUN_ID/KEY/  正規化NetCDF
 ├─ static/model-terrain/v1/   Pzs由来の静的地形
-└─ locks/
+├─ locks/
+└─ gsm-japan/                GSM専用root（raw/normalized/listings/locksを内包）
 ```
 
 CSV CLIは既存の`data/RUN_ID/*.bin`を再利用します。Weather APIは`data/raw/RUN_ID/`を使用します。破損ファイルは削除せず`.corrupt.TIMESTAMP`へ退避します。RISHへのアクセスを集中させないため、ダウンロードは逐次実行します。
@@ -140,13 +141,62 @@ RISHの利用条件を確認し、企業活動等で頻繁に利用する場合�
 
 ## 検証
 
+GSMの仕様、coverageの条件付き高度判定、error分類、実データ検証の詳細は[GSM日本域の設計・調査記録](docs/gsm-japan.md)を参照してください。
+
 通常テストはnetworkなしで実行できます。実データ受入は明示的に有効化します。
 
 ```bash
 pytest -q
 JMA_GPV_REAL_MSM=1 JMA_GPV_REAL_CACHE=data/acceptance pytest -q -s tests/test_real_msm.py
+JMA_GPV_REAL_GSM=1 JMA_GPV_REAL_CACHE=data/acceptance pytest -q -s tests/test_real_gsm.py
 python -m pip install build
 python -m build
 ```
 
 実データ受入はRISHの固定Run `2026-07-27 12Z`で、上空風・上空気温・地上風・地上気温、時空間補間、SHA-256/provenance、warm cache再利用を確認します。有効化後の通信・decode失敗はskipせず失敗になります。公式Pzsを用いたQNH受入は含みません（Issue #6）。Issue #8のTOPO opt-inもmainには未導入であり、今回の再編には取り込みません。
+
+## GSM日本域とoffline coverage
+
+```python
+from jma_gpv_weather import (
+    GsmClient, CoveragePoint, CoverageState, SurfaceTemperatureQuery,
+    AloftTemperatureQuery,
+)
+
+client = GsmClient(cache_dir="data")
+coverage = client.check_coverage(
+    requirements,
+    points=(CoveragePoint(31.877, 131.449, altitude_msl_m=4572),),
+)
+# OUTSIDE_SPECだけが確定した仕様外。REQUIRES_HGTは仕様外ではありません。
+# 圧力面のMSL高度は気象状態で変わるため、download前には保証しません。
+print(coverage.state, coverage.reason_codes, coverage.candidate_runs)
+
+status = client.resolve_run(requirements)
+forecast = client.prepare_run(status.selected_run, requirements)
+aloft = forecast.query(AloftQuery(31.877, 131.449, valid_time, 4572))
+```
+
+地上気温を取得する場合は`ForecastRequirements.variables`に
+`WeatherVariable.SURFACE_TEMPERATURE`を含め、
+`forecast.query(SurfaceTemperatureQuery(latitude, longitude, valid_time))`を使用します。
+気温だけの上空queryには`ALOFT_TEMPERATURE`と`AloftTemperatureQuery`を使用します。
+どちらもMSM/GSM共通の公開APIです。地上風・推定QNHは引き続きMSMのみです。
+
+`check_coverage`は地点・気圧面・変数・予報時刻・Run仕様を確認し、RISHへアクセスしません。
+再現可能な判定には`as_of=`（その時点までに初期時刻を迎えたRun）を指定します。
+`run=RunId(...)`で固定Runの仕様判定もできます。Run公開完了を保証する引数ではありません。
+
+GSMはlisting失敗を`GsmDiscoveryError`、取得可能な互換Runが見つからない状態を
+`GsmRunUnavailableError`、download/decode/cache失敗を`GsmProcessingError`として返します。
+これらは`GsmCoverageError`ではありません。MSMの既存`discover_runs()`は互換性を維持するため、
+listing失敗を集約する従来動作のままです。MSMの`NoCompatibleRunError`を仕様外へ読み替えず、
+独立した`MsmClient.check_coverage()`を使用してください。モデル自動切替は実装していません。
+
+
+`REQUIRES_HGT`の後は、MSM/GSM共通の
+`forecast.check_altitude_coverage(AloftQuery(...))`で実HGTによる高度coverageを確認できます。
+`AVAILABLE`は範囲内、`ALTITUDE_OUTSIDE_HGT_RANGE`は全必要データが正常な場合の範囲外、
+`SOURCE_VALUE_UNAVAILABLE`は欠測・不正値等による判定不能です。
+後続のモデル選択では高度不足を示すreasonだけを識別でき、private methodは不要です。
+既存`query()`の結果や`VERTICAL_BRACKET_UNAVAILABLE`の意味は維持しています。

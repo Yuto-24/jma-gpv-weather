@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-import json
 from pathlib import Path
 
 from ..cache import cached_listing
@@ -16,10 +15,12 @@ from ..time_utils import UTC
 from ._errors import msm_error_boundary
 from .spec import (
     DEFAULT_BOUNDS, LEVELS_HPA, MAX_FORECAST_HOURS, interpolation_bounds,
-    parse_listing, required_valid_times, select_compatible_runs,
+    parse_listing, required_valid_times, select_compatible_runs, check_coverage,
 )
 
 class MsmClient:
+    check_coverage = staticmethod(check_coverage)
+
     def __init__(
         self,
         cache_dir: str | Path = "data",
@@ -79,10 +80,9 @@ class MsmClient:
         available_runs: tuple[RunSelection, ...] | None = None,
         terrain_provider=None,
     ):
-        from ..cache import acquire_files, file_lock
-        from ..grib import read_grib_records
+        from ..cache import acquire_files
         from .dataset import PreparedForecast
-        from ..normalized import load_records, normalized_key, save_records
+        from ..normalized import prepare_records
 
         runs = available_runs or self.discover_runs(requirements)
         selection = next(
@@ -100,64 +100,11 @@ class MsmClient:
             sorted({value for values in needed.values() for value in values})
         )
         prepared_bounds = interpolation_bounds(self.bounds)
-        key = normalized_key(prepared_bounds, valid_times)
-        normalized_path = (
-            self.cache_dir
-            / "normalized"
-            / "v1"
-            / str(run)
-            / key
-            / "weather.nc"
-        )
-        lock_path = self.cache_dir / "locks" / f"normalized-{run}-{key}.lock"
-        with file_lock(lock_path):
-            if normalized_path.exists():
-                try:
-                    surface, pressure = load_records(normalized_path)
-                except (OSError, ValueError):
-                    corrupt = normalized_path.with_suffix(".nc.corrupt")
-                    normalized_path.replace(corrupt)
-                    surface, pressure = {}, {}
-            else:
-                surface, pressure = {}, {}
-            if not surface and not pressure:
-                with msm_error_boundary():
-                    surface, pressure = read_grib_records(
-                        paths,
-                        None,
-                        prepared_bounds,
-                        valid_times=valid_times,
-                        pressure_levels=LEVELS_HPA,
-                    )
-                save_records(
-                    normalized_path,
-                    surface,
-                    pressure,
-                    {
-                        "initial_time_utc": run.initial_time_utc.isoformat(),
-                        "source_hashes_json": json.dumps(hashes, sort_keys=True),
-                    },
-                    pressure_levels=LEVELS_HPA,
-                )
-                manifest_path = normalized_path.parent / "manifest.json"
-                manifest_temp = manifest_path.with_suffix(".json.tmp")
-                manifest_temp.write_text(
-                    json.dumps(
-                        {
-                            "schema_version": 1,
-                            "initial_time_utc": run.initial_time_utc.isoformat(),
-                            "prepared_bounds": prepared_bounds.__dict__,
-                            "valid_times": [value.isoformat() for value in valid_times],
-                            "source_hashes": hashes,
-                            "normalized_file": normalized_path.name,
-                        },
-                        indent=2,
-                        sort_keys=True,
-                    )
-                    + "\n",
-                    encoding="utf-8",
-                )
-                manifest_temp.replace(manifest_path)
+        with msm_error_boundary():
+            surface, pressure = prepare_records(
+                self.cache_dir, run, prepared_bounds, valid_times, paths, hashes,
+                pressure_levels=LEVELS_HPA,
+            )
         self._validate_prepared(requirements, needed, surface, pressure)
         return PreparedForecast(
             selection,
@@ -175,6 +122,10 @@ class MsmClient:
                 for name in ("u", "v"):
                     if not any(key[0] == valid and key[2] == name for key in surface):
                         missing.append(f"{valid.isoformat()}:surface:{name}")
+        if WeatherVariable.SURFACE_TEMPERATURE in requirements.variables:
+            for valid in needed.get("Lsurf", ()):
+                if not any(key[0] == valid and key[2] == "tmp_surface" for key in surface):
+                    missing.append(f"{valid.isoformat()}:surface:tmp_surface")
         if WeatherVariable.ESTIMATED_QNH in requirements.variables:
             for valid in needed.get("Lsurf", ()):
                 for name in ("sp", "tmp_surface", "rh"):

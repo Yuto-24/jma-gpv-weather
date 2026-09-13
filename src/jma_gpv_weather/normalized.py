@@ -135,3 +135,82 @@ def load_records(path: Path):
 def _to_datetime(value) -> datetime:
     timestamp_ns = np.datetime64(value, "ns").astype("int64")
     return datetime.fromtimestamp(timestamp_ns / 1_000_000_000, tz=timezone.utc)
+
+
+def prepare_records(cache_dir, run, prepared_bounds, valid_times, paths, hashes, *, pressure_levels,
+                    verify_manifest=False, validate_records=None):
+    """Reuse the same atomic normalized cache for each caller-owned model root.
+
+    Optional model validation raises ValueError for incomplete records. Validate
+    loaded data before reuse and decoded data before publishing either artifact.
+    """
+    from .cache import file_lock, sha256_file
+    from .grib import read_grib_records
+    key = normalized_key(prepared_bounds, valid_times)
+    normalized_path = (
+        cache_dir
+        / "normalized"
+        / "v1"
+        / str(run)
+        / key
+        / "weather.nc"
+    )
+    lock_path = cache_dir / "locks" / f"normalized-{run}-{key}.lock"
+    manifest_path = normalized_path.parent / "manifest.json"
+    with file_lock(lock_path):
+        if normalized_path.exists():
+            try:
+                if verify_manifest:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    if (manifest.get("source_hashes") != hashes
+                            or manifest.get("normalized_sha256") != sha256_file(normalized_path)):
+                        raise ValueError("normalized cache hash/source mismatch")
+                surface, pressure = load_records(normalized_path)
+                if validate_records is not None:
+                    validate_records(surface, pressure)
+            except (OSError, ValueError):
+                corrupt = normalized_path.with_suffix(".nc.corrupt")
+                normalized_path.replace(corrupt)
+                surface, pressure = {}, {}
+        else:
+            surface, pressure = {}, {}
+        if not surface and not pressure:
+            surface, pressure = read_grib_records(
+                paths,
+                None,
+                prepared_bounds,
+                valid_times=valid_times,
+                pressure_levels=pressure_levels,
+            )
+            if validate_records is not None:
+                validate_records(surface, pressure)
+            save_records(
+                normalized_path,
+                surface,
+                pressure,
+                {
+                    "initial_time_utc": run.initial_time_utc.isoformat(),
+                    "source_hashes_json": json.dumps(hashes, sort_keys=True),
+                },
+                pressure_levels=pressure_levels,
+            )
+            manifest_temp = manifest_path.with_suffix(".json.tmp")
+            manifest_temp.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "initial_time_utc": run.initial_time_utc.isoformat(),
+                        "prepared_bounds": prepared_bounds.__dict__,
+                        "valid_times": [value.isoformat() for value in valid_times],
+                        "source_hashes": hashes,
+                        "normalized_file": normalized_path.name,
+                        **({"normalized_sha256": sha256_file(normalized_path)} if verify_manifest else {}),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            manifest_temp.replace(manifest_path)
+    return surface, pressure

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jma-gpv-weather"
-version = "0.3.0"
-description = "Download, cache, and query JMA GPV weather forecasts (currently MSM) from the RISH archive"
+version = "0.4.0"
+description = "Download, cache, and query JMA GPV weather forecasts (MSM and GSM Japan) from the RISH archive"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -29,4 +29,4 @@ include = ["jma_gpv_weather*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["real_data: opt-in RISH MSM integration (network and GRIB download)"]
+markers = ["real_data: opt-in RISH MSM/GSM integration (network and GRIB download)"]
