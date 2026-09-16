@@ -212,7 +212,10 @@ NodeとLinux ChromiumのPyodideではwheelを通常installし、以下を照合�
 
 数値のruntime間比較は`rel_tol=1e-12, abs_tol=1e-10`、その他のcontractは完全一致。
 runtime/テスト依存の初回setupにはnetworkを使うが、気象データは常にlocal fixture。
-Chromiumから外部networkへのrequestは遮断して検証する。実データの直接取得・decoder性能、
+Browser用のNumPy / micropip / tzdataと推移依存は、setup時にPyodideのlockに従って
+取得しSHA-256を検証する。Nodeのpackage cacheからは配信しない。新しいChromium contextを
+Node acceptanceより先に起動し、`tzdata`を明示loadして`ZoneInfo("Asia/Tokyo")`のUTC+9を
+確認する。Chromiumから外部networkへのrequestは遮断して検証する。実データの直接取得・decoder性能、
 productionアプリのcold/warm download量やmemory、Safari物理端末の安定性を証明するテストではない。
 
 2026-09-16の検証結果：Python 3.12で216件成功（network opt-in 2件は通常実行から除外）。

@@ -2,6 +2,7 @@
 // are served locally. The browser is prohibited from making external requests.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,18 +30,22 @@ const files = new Map([
   [`/${wheelName}`, await readFile(wheelPath)],
   ["/acceptance.py", Buffer.from(python)],
 ]);
-// loadPackage caches these wheels locally for the browser, including dependencies.
-const pyodide = await loadPyodide({ indexURL: runtimeDir + "/" });
-await pyodide.loadPackage(["numpy", "micropip", "tzdata"]);
-for (const name of ["pygrib", "fcntl"]) {
-  assert.equal(pyodide.runPython(`import importlib.util; importlib.util.find_spec("${name}") is None`), true);
+// Stage browser dependencies directly from the pinned runtime lock, independently
+// of loadPyodide and its Node disk cache. Never serve cached wheels from runtimeDir.
+const lock = JSON.parse(await readFile(resolve(runtimeDir, "pyodide-lock.json"), "utf8"));
+const packages = new Set(["numpy", "micropip", "tzdata"]);
+for (const name of packages) {
+  for (const dependency of lock.packages[name].depends) packages.add(dependency);
 }
-pyodide.FS.mkdir("/case");
-for (const [path, data] of files) if (path !== "/acceptance.py") pyodide.FS.writeFile(path, data);
-// Normal dependency resolution proves emscripten markers, without deps=False.
-await pyodide.runPythonAsync(`import micropip; await micropip.install("emfs:/${wheelName}")`);
-pyodide.runPython(python);
-console.log("Node Pyodide:", pyodide.runPython("acceptance_result"));
+for (const name of packages) {
+  const pkg = lock.packages[name];
+  const url = `https://cdn.jsdelivr.net/pyodide/v${lock.info.version}/full/${pkg.file_name}`;
+  const response = await fetch(url);
+  assert.ok(response.ok, `Runtime setup failed: ${response.status} ${url}`);
+  const data = Buffer.from(await response.arrayBuffer());
+  assert.equal(createHash("sha256").update(data).digest("hex"), pkg.sha256, `Runtime hash: ${name}`);
+  files.set(`/pyodide/${pkg.file_name}`, data);
+}
 
 const server = createServer(async (request, response) => {
   try {
@@ -50,7 +55,7 @@ const server = createServer(async (request, response) => {
       response.end('<!doctype html><title>MSM Pyodide acceptance</title><script src="/pyodide/pyodide.js"></script>');
     } else if (files.has(path)) {
       response.end(files.get(path));
-    } else if (path.startsWith("/pyodide/") && basename(path) === path.slice("/pyodide/".length)) {
+    } else if (!path.endsWith(".whl") && path.startsWith("/pyodide/") && basename(path) === path.slice("/pyodide/".length)) {
       response.setHeader("Content-Type", path.endsWith(".wasm") ? "application/wasm" : path.endsWith(".js") ? "text/javascript" : "application/octet-stream");
       response.end(await readFile(resolve(runtimeDir, basename(path))));
     } else {
@@ -78,7 +83,10 @@ try {
   await page.goto(origin);
   const result = await page.evaluate(async ({ origin, wheelName }) => {
     const pyodide = await window.loadPyodide({ indexURL: origin + "/pyodide/" });
-    await pyodide.loadPackage(["numpy", "micropip"]);
+    await pyodide.loadPackage(["numpy", "micropip", "tzdata"]);
+    pyodide.runPython(`from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+assert datetime(2026, 1, 1, tzinfo=ZoneInfo("Asia/Tokyo")).utcoffset() == timedelta(hours=9)`);
     await pyodide.runPythonAsync(`import micropip; await micropip.install("${origin}/${wheelName}")`);
     pyodide.FS.mkdir("/case");
     for (const path of ["/case/case.json", "/case/prepared.npz"]) {
@@ -94,6 +102,20 @@ try {
   await browser?.close();
   await new Promise(done => server.close(done));
 }
+
+// Node runs after Chromium; its package cache is never a browser prerequisite.
+const pyodide = await loadPyodide({ indexURL: runtimeDir + "/" });
+await pyodide.loadPackage(["numpy", "micropip", "tzdata"]);
+for (const name of ["pygrib", "fcntl"]) {
+  assert.equal(pyodide.runPython(`import importlib.util; importlib.util.find_spec("${name}") is None`), true);
+}
+pyodide.FS.mkdir("/case");
+for (const [path, data] of files) if (path !== "/acceptance.py" && !path.startsWith("/pyodide/")) pyodide.FS.writeFile(path, data);
+// Normal dependency resolution proves emscripten markers, without deps=False.
+await pyodide.runPythonAsync(`import micropip; await micropip.install("emfs:/${wheelName}")`);
+pyodide.runPython(python);
+console.log("Node Pyodide:", pyodide.runPython("acceptance_result"));
+
 }
 
 main().catch(error => { console.error(error.message); process.exitCode = 1; });
