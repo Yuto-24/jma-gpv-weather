@@ -201,7 +201,7 @@ runtime/テスト依存の初回setupにはnetworkを使うが、気象データ
 Chromiumから外部networkへのrequestは遮断して検証する。実データの直接取得・decoder性能、
 productionアプリのcold/warm download量やmemory、Safari物理端末の安定性を証明するテストではない。
 
-2026-09-16の検証結果：Python 3.12で199件成功（network opt-in 2件は通常実行から除外）。
+2026-09-16の検証結果：Python 3.12で200件成功（network opt-in 2件は通常実行から除外）。
 独立したwheel installでも同じ結果。Node / Linux ChromiumのPyodide 0.27.7
 （CPython 3.12.7）で両方成功し、20,603 bytesのsynthetic snapshotから5 queryと
 全provenance・coverage・Run statusを照合した。

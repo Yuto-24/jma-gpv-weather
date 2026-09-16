@@ -198,6 +198,15 @@ def test_corrupt_deflate_member_is_cache_integrity_error(case):
     assert isinstance(error.value.__cause__, zlib.error)
 
 
+def test_unsigned_grid_cannot_hide_non_monotonic_coordinates(case):
+    data = MsmPreparedData.from_forecast(case[-1])
+    lon = np.tile(np.array([130, 131, 130], dtype=np.uint8), (2, 1))
+    data.pressure = {key: (values, lat, lon)
+                     for key, (values, lat, _) in data.pressure.items()}
+    with pytest.raises(CacheIntegrityError, match="non-monotonic grid"):
+        data.validate()
+
+
 @pytest.mark.parametrize("damage", ["unsupported_compression", "encrypted"])
 def test_unsupported_zip_features_are_cache_integrity_errors(case, damage):
     payload = bytearray(MsmPreparedData.from_forecast(case[-1]).to_bytes())

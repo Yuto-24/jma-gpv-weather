@@ -111,7 +111,7 @@ class MsmPreparedData:
                         or np.any((lon < 120) | (lon > 150))):
                     invalid("invalid MSM grid")
                 for axis in (lat[:, 0], lon[0, :]):
-                    delta = np.diff(axis)
+                    delta = np.diff(axis.astype(float, copy=False))
                     if not ((delta > 0).all() or (delta < 0).all()):
                         invalid("non-monotonic grid")
                 if reference is not None and any(
