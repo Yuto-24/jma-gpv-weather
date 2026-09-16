@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Mapping, TYPE_CHECKING
 
 from ..cache import cached_listing
 from ..errors import MissingVariableError, NoCompatibleRunError, SelectedRunCoverageError
@@ -17,6 +18,9 @@ from .spec import (
     DEFAULT_BOUNDS, LEVELS_HPA, MAX_FORECAST_HOURS, interpolation_bounds,
     parse_listing, required_valid_times, select_compatible_runs, check_coverage,
 )
+
+if TYPE_CHECKING:
+    from .prepared import MsmPreparedData
 
 class MsmClient:
     check_coverage = staticmethod(check_coverage)
@@ -34,22 +38,45 @@ class MsmClient:
         self.base_url = base_url
         self.source = source if source is not None else RishSource(base_url)
 
-    def discover_runs(self, requirements: ForecastRequirements) -> tuple[RunSelection, ...]:
+    def listing_urls(self, requirements: ForecastRequirements) -> tuple[str, ...]:
+        """Directories to acquire through DataSource or an async runtime transport."""
         needed = required_valid_times(requirements)
         earliest = min(time for values in needed.values() for time in values)
         latest = max(time for values in needed.values() for time in values)
         first_day = (earliest - timedelta(hours=MAX_FORECAST_HOURS)).date()
         last_day = min(latest, datetime.now(UTC)).date()
-        files: list[RemoteFile] = []
+        urls = []
         day = first_day
         while day <= last_day:
-            directory = self.source.directory_url(day)
+            urls.append(self.source.directory_url(day))
+            day += timedelta(days=1)
+        return tuple(urls)
+
+    def discover_runs(
+        self, requirements: ForecastRequirements, *, listings: Mapping[str, str] | None = None,
+    ) -> tuple[RunSelection, ...]:
+        """Select runs from desktop transport or a complete URL -> listing mapping.
+
+        Supplied listings bypass filesystem caching. Missing entries are acquisition
+        failures, not evidence of absent runs; use an empty string for a known empty
+        directory. Runtime transports must propagate their own acquisition errors.
+        """
+        from ..errors import MsmError
+        files: list[RemoteFile] = []
+        for directory in self.listing_urls(requirements):
+            if listings is not None:
+                if directory not in listings or not isinstance(listings[directory], str):
+                    raise MsmError(f"Missing or invalid acquired listing: {directory}")
+                try:
+                    files.extend(parse_listing(listings[directory], directory))
+                except ValueError as exc:
+                    raise MsmError(f"Invalid acquired listing: {directory}: {exc}") from exc
+                continue
             try:
                 listing = cached_listing(directory, self.cache_dir, self.source.read_listing)
                 files.extend(parse_listing(listing, directory))
             except Exception:
                 pass
-            day += timedelta(days=1)
         runs = select_compatible_runs(files, requirements)
         if not runs:
             raise NoCompatibleRunError("No forecast run covers all required interpolation times")
@@ -79,12 +106,29 @@ class MsmClient:
         requirements: ForecastRequirements,
         available_runs: tuple[RunSelection, ...] | None = None,
         terrain_provider=None,
+        *,
+        prepared_data: MsmPreparedData | None = None,
     ):
+        """Prepare through the desktop cache or validate supplied portable MSM data.
+
+        Supplied data performs no acquisition, decode or filesystem cache access.
+        Its record grids define the prepared area; bounds controls desktop decode.
+        Without available_runs, compatibility is checked against its source files.
+        """
         from ..cache import acquire_files
         from .dataset import PreparedForecast
         from ..normalized import prepare_records
 
-        runs = available_runs or self.discover_runs(requirements)
+        if prepared_data is not None:
+            from .prepared import MsmPreparedData
+            if not isinstance(prepared_data, MsmPreparedData):
+                raise TypeError("prepared_data must be MsmPreparedData")
+            prepared_data.validate()
+            if available_runs is None:
+                available_runs = select_compatible_runs(prepared_data.selection.files, requirements)
+            runs = available_runs
+        else:
+            runs = available_runs or self.discover_runs(requirements)
         selection = next(
             (candidate for candidate in runs if candidate.run_utc == run.initial_time_utc),
             None,
@@ -93,6 +137,8 @@ class MsmClient:
             raise SelectedRunCoverageError(
                 f"selected run {run} does not cover all required interpolation times"
             )
+        if prepared_data is not None:
+            return prepared_data._prepare(selection, requirements, terrain_provider=terrain_provider)
         with msm_error_boundary():
             paths, hashes = acquire_files(selection.files, self.cache_dir, self.source.download)
         needed = required_valid_times(requirements)

@@ -1,0 +1,7 @@
+{
+  "name": "jma-gpv-weather-runtime-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node verify.mjs"},
+  "devDependencies": {"playwright": "1.62.1", "pyodide": "0.27.7"}
+}

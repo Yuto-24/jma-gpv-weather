@@ -9,7 +9,7 @@ import pytest
 
 from jma_gpv_weather import (
     AloftQuery, Availability, Bounds, EstimatedQnhQuery, ForecastRequirements,
-    MsmClient, RunId, SurfaceWindQuery, SurfaceTemperatureQuery, WeatherVariable,
+    MsmClient, MsmPreparedData, RunId, SurfaceWindQuery, SurfaceTemperatureQuery, WeatherVariable,
 )
 from jma_gpv_weather import grib
 from jma_gpv_weather.cache import verify_cache
@@ -67,9 +67,16 @@ def test_fixed_rish_run_queries_and_cache(tmp_path, monkeypatch):
 
     monkeypatch.setattr(grib, 'read_grib_records', no_decode)
     warm = client.prepare_run(run, req, available_runs=runs)
+    portable = MsmPreparedData.from_bytes(MsmPreparedData.from_forecast(warm).to_bytes())
+    restored = client.prepare_run(run, req, available_runs=runs, prepared_data=portable)
     for valid in times:
         query = AloftQuery(31.877, 131.449, valid, 4572)
         assert asdict(warm.query(query)) == asdict(prepared.query(query))
         assert warm.check_altitude_coverage(query) == prepared.check_altitude_coverage(query)
+        assert restored.query(query) == prepared.query(query)
+        assert restored.query(SurfaceTemperatureQuery(31.877, 131.449, valid)) == prepared.query(
+            SurfaceTemperatureQuery(31.877, 131.449, valid)
+        )
+        assert restored.check_altitude_coverage(query) == prepared.check_altitude_coverage(query)
     print(json.dumps({'run': str(run), 'results': results, 'cache': verification},
                      default=str, sort_keys=True))

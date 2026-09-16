@@ -5,6 +5,7 @@ from .gsm import GsmClient, PreparedGsmForecast
 from .coverage import CoveragePoint, CoverageState, SpecCoverage
 from .models import Bounds, SurfaceTemperatureQuery, AloftTemperatureQuery
 from .msm.dataset import PreparedForecast
+from .msm.prepared import MsmPreparedData
 from .models import (
     AloftQuery,
     Availability,
@@ -31,10 +32,11 @@ __all__ = [
     "GridTerrainProvider",
     "MsmClient",
     "PreparedForecast",
+    "MsmPreparedData",
     "RunId",
     "SurfaceWindQuery",
     "WeatherResult",
     "WeatherVariable",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
