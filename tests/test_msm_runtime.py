@@ -7,6 +7,7 @@ import sys
 import struct
 from zipfile import ZipFile, ZIP_DEFLATED
 import zlib
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -115,7 +116,10 @@ def test_temperature_only_and_missing_values_keep_semantics(case):
     data.pressure = {k: v for k, v in data.pressure.items() if k[2] in ("hgt", "tmp")}
     temperature_req = replace(req, variables=frozenset({WeatherVariable.ALOFT_TEMPERATURE}))
     prepared = client.prepare_run(selected, temperature_req, prepared_data=data)
-    assert prepared.query(queries()[1]) == forecast.query(queries()[1])
+    assert prepared.query(queries()[1]).values == forecast.query(queries()[1]).values
+    assert prepared.query(queries()[1]).provenance.source_urls == tuple(
+        remote.url for remote in data.selection.files if remote.kind == "L-pall"
+    )
     assert prepared.check_altitude_coverage(queries()[1]).availability == Availability.AVAILABLE
     data = MsmPreparedData.from_forecast(forecast)
     key = next(k for k in data.pressure if k[2] == "tmp")
@@ -229,4 +233,142 @@ def test_unsupported_zip_features_are_cache_integrity_errors(case, damage):
             struct.pack_into("<H", payload, offset, flags | 1)
     with pytest.raises(CacheIntegrityError) as error:
         MsmPreparedData.from_bytes(bytes(payload))
-    assert isinstance(error.value.__cause__, RuntimeError)
+    if damage == "encrypted":
+        assert isinstance(error.value.__cause__, RuntimeError)
+    else:
+        assert "compression method" in str(error.value)
+
+
+@pytest.mark.parametrize("method", [12, 14])  # ZIP_BZIP2 / ZIP_LZMA
+def test_unbounded_zip_codecs_rejected_before_member_open(case, monkeypatch, method):
+    payload = MsmPreparedData.from_forecast(case[-1]).to_bytes()
+    output = BytesIO()
+    with ZipFile(BytesIO(payload)) as source, ZipFile(output, "w", method) as target:
+        for name in source.namelist():
+            target.writestr(name, source.read(name))
+    monkeypatch.setattr(ZipFile, "open", lambda *a, **kw: pytest.fail("Unbounded codec opened"))
+    with pytest.raises(CacheIntegrityError, match="compression method"):
+        MsmPreparedData.from_bytes(output.getvalue())
+
+
+@pytest.mark.parametrize("variable,query_index,kind", [
+    (WeatherVariable.ALOFT_TEMPERATURE, 1, "L-pall"),
+    (WeatherVariable.SURFACE_TEMPERATURE, 2, "Lsurf"),
+])
+def test_narrow_requirements_match_desktop_provenance(case, variable, query_index, kind):
+    client, req, _, selected, forecast = case
+    data = MsmPreparedData.from_forecast(forecast)
+    narrow = replace(req, variables=frozenset({variable}))
+    runs = client.discover_runs(narrow)
+    decoded = (data.surface, {}) if kind == "Lsurf" else ({}, data.pressure)
+    with patch("jma_gpv_weather.grib.read_grib_records", return_value=decoded):
+        desktop = client.prepare_run(selected, narrow, available_runs=runs)
+    for available in (None, runs):
+        restored = client.prepare_run(selected, narrow, available_runs=available, prepared_data=data)
+        assert restored.query(queries()[query_index]) == desktop.query(queries()[query_index])
+        assert all(remote.kind == kind for remote in restored.selection.files)
+        expected_urls = tuple(remote.url for remote in restored.selection.files)
+        assert restored.query(queries()[query_index]).provenance.source_urls == expected_urls
+        assert restored.source_hashes == {url: data.source_hashes[url] for url in expected_urls}
+        other_query = queries()[1 if kind == "Lsurf" else 2]
+        assert restored.query(other_query) == desktop.query(other_query)
+        assert restored.query(other_query).availability == Availability.UNAVAILABLE
+        roundtrip = MsmPreparedData.from_bytes(MsmPreparedData.from_forecast(restored).to_bytes())
+        assert client.prepare_run(selected, narrow, prepared_data=roundtrip).query(
+            queries()[query_index]
+        ) == restored.query(queries()[query_index])
+    assert len(data.selection.files) == len(data.source_hashes) == 2
+
+
+@pytest.mark.parametrize("limit", [
+    "_MAX_PAYLOAD_BYTES", "_MAX_MEMBERS", "_MAX_MEMBER_BYTES", "_MAX_TOTAL_BYTES", "_MAX_METADATA_BYTES",
+])
+def test_archive_budgets_reject_before_numpy_load(case, monkeypatch, limit):
+    payload = MsmPreparedData.from_forecast(case[-1]).to_bytes()
+    with ZipFile(BytesIO(payload)) as archive:
+        sizes = [info.file_size for info in archive.infolist()]
+        limits = {"_MAX_PAYLOAD_BYTES": len(payload), "_MAX_MEMBERS": len(sizes),
+                  "_MAX_MEMBER_BYTES": max(sizes), "_MAX_TOTAL_BYTES": sum(sizes),
+                  "_MAX_METADATA_BYTES": archive.getinfo("metadata.npy").file_size}
+    monkeypatch.setattr(f"jma_gpv_weather.msm.prepared.{limit}", limits[limit] - 1)
+    monkeypatch.setattr(np, "load", lambda *a, **kw: pytest.fail("np.load called before budget rejection"))
+    with pytest.raises(CacheIntegrityError, match="limit"):
+        MsmPreparedData.from_bytes(payload)
+
+
+def test_archive_budgets_accept_exact_limits(case, monkeypatch):
+    payload = MsmPreparedData.from_forecast(case[-1]).to_bytes()
+    with ZipFile(BytesIO(payload)) as archive:
+        sizes = [info.file_size for info in archive.infolist()]
+        limits = {"_MAX_PAYLOAD_BYTES": len(payload), "_MAX_MEMBERS": len(sizes),
+                  "_MAX_MEMBER_BYTES": max(sizes), "_MAX_TOTAL_BYTES": sum(sizes),
+                  "_MAX_METADATA_BYTES": archive.getinfo("metadata.npy").file_size}
+    for limit, value in limits.items():
+        monkeypatch.setattr(f"jma_gpv_weather.msm.prepared.{limit}", value)
+    restored = MsmPreparedData.from_bytes(payload)
+    assert restored.source_hashes == case[-1].source_hashes
+
+
+def test_metadata_alias_cannot_bypass_metadata_budget(case, monkeypatch):
+    payload = MsmPreparedData.from_forecast(case[-1]).to_bytes()
+    output, shadow = BytesIO(), BytesIO()
+    with ZipFile(BytesIO(payload)) as source, ZipFile(output, "w", ZIP_DEFLATED) as target:
+        for name in source.namelist():
+            target.writestr(name, source.read(name))
+        metadata = np.load(BytesIO(source.read("metadata.npy")), allow_pickle=False).tobytes()
+        np.save(shadow, np.frombuffer(metadata + b" " * (2 * 1024**2), dtype=np.uint8), allow_pickle=False)
+        target.writestr("metadata", shadow.getvalue())
+    monkeypatch.setattr(np, "load", lambda *a, **kw: pytest.fail("metadata alias reached np.load"))
+    with pytest.raises(CacheIntegrityError, match="noncanonical"):
+        MsmPreparedData.from_bytes(output.getvalue())
+
+
+@pytest.mark.parametrize("forge_count", [False, True])
+def test_member_count_rejected_before_zipinfo_allocation(monkeypatch, forge_count):
+    output = BytesIO()
+    with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+        for index in range(2049):
+            archive.writestr(f"r{index}.npy", b"")
+    payload = bytearray(output.getvalue())
+    if forge_count:
+        end = payload.rfind(b"PK\x05\x06")
+        struct.pack_into("<HH", payload, end + 8, 1, 1)
+    monkeypatch.setattr("jma_gpv_weather.msm.prepared.ZipFile",
+                        lambda *a, **kw: pytest.fail("ZipInfo allocation before member count rejection"))
+    with pytest.raises(CacheIntegrityError, match="member count limit"):
+        MsmPreparedData.from_bytes(bytes(payload))
+
+
+def test_narrow_preparation_excludes_unselected_file_times(case):
+    client, req, _, selected, forecast = case
+    data = MsmPreparedData.from_forecast(forecast)
+    original = next(remote for remote in data.selection.files if remote.kind == "Lsurf")
+    extra = replace(original, name=original.name.replace("00-15", "16-33"),
+                    url=original.url.replace("00-15", "16-33"), first_hour=16, last_hour=33)
+    data.selection = replace(data.selection, files=(*data.selection.files, extra))
+    data.source_hashes[extra.url] = "a" * 64
+    key = (selected.initial_time_utc + timedelta(hours=18), 2, "tmp_surface")
+    data.surface[key] = next(iter(data.surface.values()))
+    restored = client.prepare_run(selected, req, prepared_data=data)
+    assert key not in restored.surface and key in data.surface
+    assert extra not in restored.selection.files and extra.url not in restored.source_hashes
+    MsmPreparedData.from_forecast(restored).validate()
+
+
+@pytest.mark.parametrize("forgery", ["shape", "header_length"])
+def test_forged_npy_header_rejected_before_numpy_load(case, monkeypatch, forgery):
+    payload = MsmPreparedData.from_forecast(case[-1]).to_bytes()
+    header = BytesIO()
+    if forgery == "shape":
+        np.lib.format.write_array_header_1_0(header, {
+            "descr": "<f8", "fortran_order": False, "shape": (2**40,),
+        })
+    else:
+        header.write(np.lib.format.magic(2, 0) + struct.pack("<I", 2**32 - 1))
+    output = BytesIO()
+    with ZipFile(BytesIO(payload)) as source, ZipFile(output, "w", ZIP_DEFLATED) as target:
+        for name in source.namelist():
+            target.writestr(name, header.getvalue() if name == "r0.npy" else source.read(name))
+    monkeypatch.setattr(np, "load", lambda *a, **kw: pytest.fail("unbounded NPY allocation attempted"))
+    with pytest.raises(CacheIntegrityError):
+        MsmPreparedData.from_bytes(output.getvalue())

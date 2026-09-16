@@ -165,11 +165,25 @@ snapshotの格子がprepared areaを定義する。consumerの`MsmClient.bounds`
 再切出しは行わない（`bounds`はdesktop取得時の矩形）。範囲外queryは既存のunavailableになる。
 同じsnapshotの範囲内で別地点・時刻をqueryできるが、追加の時間端やfieldが必要なら再prepareする。
 snapshotだけで元fileに存在する全時刻が準備済みとはみなさない。
+要求を狭めて再prepareした場合は、採用した`selection.files`だけを結果のsource URLと
+SHA-256へ反映し、採用しなかったproduct/fileの時刻範囲のrecordも除外する。
+元snapshotのsource一覧・hash・recordは変更しない。
 
 portable形式はMSM schema v1のNPZ。JSON metadataにmodel / schema / selection / source hashes / record keyを持ち、
 値配列とproductごとの格子を保存する。NPZのCRCと構造検証を行い、`allow_pickle=False`で読む。
 既存NetCDF normalized schema v1 / cache key / manifestは変更しない。
-runtime storageの原子性、quota、eviction、取得サイズ制限は呼出側の責務。ライブラリは
+`from_bytes`は`np.load`より前に、圧縮payload **32 MiB**、ZIP member **2048個**、
+各memberの非圧縮サイズ **32 MiB**、合計非圧縮サイズ **128 MiB**、metadata **1 MiB**の
+固定上限を検査する。上限ちょうどは受け付け、超過は`CacheIntegrityError`。
+member数は`ZipInfo`生成前にもcentral directoryを走査して確認する。
+member名はschemaの正規名に限定し、`metadata`等の別名による上限回避を拒否する。
+圧縮方式は展開量を制限できるSTORED / DEFLATEのみ。multidisk / ZIP64 central directoryは
+扱わない（producerが出力するZIP64 local headerは対応）。
+NPY headerのshape・dtypeから求める配列サイズもmemberサイズと照合し、ZIPサイズが小さくても
+巨大な配列確保を指示する偽装headerを拒否する。pickleは禁止したまま、読込み後の構造検証も行う。
+これは地域・必要時刻を絞ったsnapshotの入力上限であり、process全体のpeak memoryの保証ではない。
+大きなsnapshotはproducerでboundsや時刻を分割する。desktopのraw/NetCDF pathには適用しない。
+runtime storageの原子性、quota、eviction、受信前の取得サイズ制限は呼出側の責務。ライブラリは
 破損を例外にして止め、別Run、別source、Legacyへ自動fallbackしない。
 
 ## 検証と再現
@@ -201,7 +215,7 @@ runtime/テスト依存の初回setupにはnetworkを使うが、気象データ
 Chromiumから外部networkへのrequestは遮断して検証する。実データの直接取得・decoder性能、
 productionアプリのcold/warm download量やmemory、Safari物理端末の安定性を証明するテストではない。
 
-2026-09-16の検証結果：Python 3.12で200件成功（network opt-in 2件は通常実行から除外）。
+2026-09-16の検証結果：Python 3.12で216件成功（network opt-in 2件は通常実行から除外）。
 独立したwheel installでも同じ結果。Node / Linux ChromiumのPyodide 0.27.7
 （CPython 3.12.7）で両方成功し、20,603 bytesのsynthetic snapshotから5 queryと
 全provenance・coverage・Run statusを照合した。

@@ -87,15 +87,30 @@ def acceptance():
     assert not Path("/no-cache").exists()
     warm = MsmPreparedData.from_bytes(data.to_bytes())
     assert client.prepare_run(selected, req, prepared_data=warm).query(queries[0]) == forecast.query(queries[0])
+    narrow = ForecastRequirements((valid,), frozenset({WeatherVariable.SURFACE_TEMPERATURE}))
+    narrowed = client.prepare_run(selected, narrow, prepared_data=data)
+    surface_result = narrowed.query(queries[2])
+    assert surface_result.values == forecast.query(queries[2]).values
+    assert len(narrowed.selection.files) == 1 and narrowed.selection.files[0].kind == "Lsurf"
+    urls = tuple(remote.url for remote in narrowed.selection.files)
+    assert surface_result.provenance.source_urls == urls
+    assert surface_result.provenance.source_hashes == {url: data.source_hashes[url] for url in urls}
+    assert narrowed.query(queries[0]).availability.value == "unavailable"
+    portable_narrowed = MsmPreparedData.from_bytes(MsmPreparedData.from_forecast(narrowed).to_bytes())
+    assert client.prepare_run(selected, narrow, prepared_data=portable_narrowed).query(queries[2]) == surface_result
     damaged = bytearray(payload)
     with ZipFile(BytesIO(payload)) as archive:
         member = archive.getinfo("metadata.npy")
+        central = archive.start_dir
     name_length, extra_length = struct.unpack_from("<HH", payload, member.header_offset + 26)
     start = member.header_offset + 30 + name_length + extra_length
     damaged[start] = (damaged[start] & 0xf8) | 0x07
+    oversized = bytearray(payload)
+    struct.pack_into("<I", oversized, central + 24, 32 * 1024**2 + 1)
     for action, error in (
         (lambda: MsmPreparedData.from_bytes(payload[:-20]), CacheIntegrityError),
         (lambda: MsmPreparedData.from_bytes(bytes(damaged)), CacheIntegrityError),
+        (lambda: MsmPreparedData.from_bytes(bytes(oversized)), CacheIntegrityError),
         (lambda: MsmPreparedData.from_bytes(payload, expected_sha256="0" * 64), CacheIntegrityError),
         (lambda: client.prepare_run(RunId(initial), req, prepared_data=data), SelectedRunCoverageError),
     ):
