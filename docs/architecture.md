@@ -19,6 +19,7 @@ jma_gpv_weather/
     spec.py           MSMファイル名・予報時間・使用気圧面・offline coverage
     client.py         MSMの探索・固定・prepareと既存cache配置
     dataset.py        MSM query入口、地上風、QNH
+    prepared.py       NumPy recordの検証・portable MSM snapshot
     terrain.py        MSMモデル地形
     qnh.py            既存推定QNH計算
     csv.py            MSM日単位CSVの仕様と出力
@@ -39,6 +40,17 @@ RISH以外のproduction実装、registry、factory、モデル自動選択はな
 
 `MsmClient(cache_dir, bounds, base_url)`の既存呼出しを維持する。keyword-onlyの`source=`指定時は
 そのsourceを使用し、未指定時だけ`RishSource(base_url)`を生成する。GSMも同じsource境界を使う。
+
+MSMの`listing_urls(requirements)`は同じDataSourceのdirectory URLを返す。
+async runtimeはこれを取得し、`discover_runs(requirements, listings=URLから本文へのmapping)`へ渡す。
+model固有のlisting解釈・必要時刻・Run選択は引き続きMSMにある。desktopの既存listing cacheを
+変更せず、取得済みmappingの経路だけで未取得entryをprocessing failureとして拒否する。
+
+`prepare_run(..., prepared_data=MsmPreparedData(...))`はraw/NetCDF/lockへ入らず、
+source identityとrecord構造を検証して、同じ必要field検証・`PreparedForecast`を使用する。
+既存normalized schema v1は変更しない。portable snapshotは独立したMSM schema v1で、
+NumPy NPZとJSON metadataを使用し、pickleを読み込まない。
+詳細・制限・Pyodideでの検証手順は[MSM runtime境界](msm-runtime.md)を参照。
 
 共通GRIB読取りと正規化保存は呼出元から`pressure_levels`を受け取り、MSM/GSM定数をimportしない。
 pygrib、NumPy、xarray/h5netcdfの既存処理を使い、演算順序を維持する。

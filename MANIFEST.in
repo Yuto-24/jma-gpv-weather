@@ -1,1 +1,4 @@
 include docs/*.md
+include tests/runtime_case.py
+recursive-include tests/pyodide *.py *.mjs package.json package-lock.json
+prune tests/pyodide/node_modules

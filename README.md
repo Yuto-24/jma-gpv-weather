@@ -42,6 +42,15 @@ pytest -q
 
 0.4.0では`GsmClient`、両モデル共通の`SurfaceTemperatureQuery`（2 m AGL気温）と`AloftTemperatureQuery`（気温のみ）、network不要の`check_coverage()`を追加しました。`AloftQuery`の既存の風・気温結果、MSMの数値・cache path・error契約は維持します。
 
+0.5.0では、Pyodide等で取得済みlistingと準備済みMSMデータを使う公開境界を追加しました。
+`MsmPreparedData.from_forecast(forecast).to_bytes()`でdesktopから出力し、
+`MsmPreparedData.from_bytes(...)`と`MsmClient.prepare_run(..., prepared_data=data)`で
+同じ補間・coverage・provenanceを利用できます。PyodideではNumPyとtzdataを必須依存とし、
+desktopの通常依存・GRIB/NetCDFキャッシュ経路は維持します。
+この機能はBrowser内の生GRIB decoderやRISHへの直接通信を提供するものではありません。
+取得済みlisting、Run固定・更新通知、生成側と利用側の手順は
+[MSM runtime境界](docs/msm-runtime.md)を参照してください。
+
 ## Python API
 
 ```python
