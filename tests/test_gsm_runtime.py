@@ -186,3 +186,17 @@ def test_corrupt_archive_rejected_as_gsm_integrity(case, damage, monkeypatch):
     monkeypatch.setattr(np, "load", lambda *a, **kw: pytest.fail("unsafe allocation"))
     with pytest.raises(GsmCacheIntegrityError):
         GsmPreparedData.from_bytes(bytes(payload))
+
+
+def test_decoder_zero_metre_temperature_is_structurally_valid_but_not_gsm_two_metre(case):
+    client, req, _, selected, forecast = case
+    data = GsmPreparedData.from_forecast(forecast)
+    data.surface = {(valid, 0 if name == "tmp_surface" else level, name): record
+                    for (valid, level, name), record in data.surface.items()}
+    restored = GsmPreparedData.from_bytes(data.to_bytes())
+    assert all(key[1] == 0 for key in restored.surface if key[2] == "tmp_surface")
+    # The shared decoder allows this record. GSM still requires its existing 2 m
+    # field; a missing required field is processing failure, not corrupt bytes.
+    with pytest.raises(GsmProcessingError) as error:
+        client.prepare_run(selected, req, prepared_data=restored)
+    assert not isinstance(error.value, GsmCacheIntegrityError)

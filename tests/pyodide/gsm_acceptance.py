@@ -68,6 +68,16 @@ def gsm_acceptance():
             value[0][0, 0] = float("nan")
             break
     assert client.prepare_run(selected, req, prepared_data=data).check_altitude_coverage(high).reason_code == "SOURCE_VALUE_UNAVAILABLE"
+    zero_metres = GsmPreparedData.from_bytes(payload)
+    zero_metres.surface = {(valid, 0 if name == "tmp_surface" else level, name): record
+                          for (valid, level, name), record in zero_metres.surface.items()}
+    zero_metres = GsmPreparedData.from_bytes(zero_metres.to_bytes())
+    try:
+        client.prepare_run(selected, req, prepared_data=zero_metres)
+    except GsmProcessingError as error:
+        assert not isinstance(error, GsmCacheIntegrityError)
+    else:
+        raise AssertionError("GSM still requires the 2 m field")
     data.surface.clear()
     try:
         client.prepare_run(selected, req, prepared_data=data)

@@ -69,7 +69,8 @@ forecast = client.prepare_run(
 - record keyはawareなvalid time、整数level、variable。valueは同一shapeの2-D NumPy
   `(values, latitude, longitude)`。矩形・単調な日本域格子をproduct内で統一する。
 - pressureはGSMの既存1000–100 hPaの16面、HGT（m）、U/V（m/s）、TMP（K）。
-  surfaceは2 m気温と共通decoderが返す補助fieldを保持するが、GSM地上風/QNH APIは追加しない。
+  surfaceは共通decoderの0/2 m気温と補助fieldを保持するが、GSM queryには従来どおり2 m気温を要求する。
+  0 mレコードだけでは不足fieldの処理エラーとなる。GSM地上風/QNH APIは追加しない。
 - 時間端は選択RunとproductのGSM仕様を用いる。FH132以降のL-pall 6時間、Lsurf 3時間への
   切替も既存GSM APIと同じ。MSMの予報間隔を流用しない。
 - 元fileのGSM model、Run、product、時刻範囲とrecordを照合し、全source URLにSHA-256を要求する。

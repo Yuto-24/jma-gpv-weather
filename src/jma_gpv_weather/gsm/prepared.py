@@ -71,7 +71,7 @@ class GsmPreparedData:
             invalid("source SHA-256 mapping mismatch")
         # Preserve the common decoder's ancillary surface fields. GSM's public
         # query contract still exposes only the 2 m temperature from this group.
-        surface_levels = {"u": (10,), "v": (10,), "tmp_surface": (2,),
+        surface_levels = {"u": (10,), "v": (10,), "tmp_surface": (0, 2),
                           "rh": (0, 2), "sp": (0,), "mslp": (0,)}
         for kind, records in (("Lsurf", self.surface), ("L-pall", self.pressure)):
             reference = None
