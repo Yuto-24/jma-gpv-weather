@@ -115,8 +115,11 @@ Native module、weather network、desktop cacheなしで実行し、破損・for
 Runtime依存のsetupには通信が必要だが、Chromiumの外部requestは遮断する。
 実RISH取得の性能・production payloadのサイズ・物理端末のmemory安定性はこのfixture検証の対象外。
 
-2026-09-25の検証結果：Python 3.12のeditable / wheel installで各235件成功、
+2026-09-25の初回検証：Python 3.12のeditable / wheel installで各235件成功、
 実RISH opt-in 2件skip。sdist・wheel buildと両CLI help成功。
+Review修正後のwheel再検証は236件成功、同じopt-in 2件skip。共通decoderの
+0m surface-temperature記録もcodecは受理し、GSM prepareが必要な2m fieldの不足として
+拒否することをDesktopと両Pyodide runtimeで確認した。破損とは分類しない。
 Node / Linux ChromiumのPyodide 0.27.7（CPython 3.12.7）で、
 54,518 bytesのGSM snapshotから6 queryと全provenance・Run status・coverageが一致した。
 同時にMSMの既存5 queryも成功した。
