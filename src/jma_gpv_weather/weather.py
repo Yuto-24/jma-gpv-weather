@@ -12,6 +12,7 @@ RecordMap = Mapping[tuple[datetime, int, str], tuple[np.ndarray, np.ndarray, np.
 
 class WeatherDataset:
     trace_pressure_levels = False
+    surface_temperature_level = None
     def __init__(self, selection, surface, pressure, source_hashes, *, pressure_levels):
         self.selection = selection
         self.surface = surface
@@ -121,7 +122,10 @@ class WeatherDataset:
         return result("ALTITUDE_OUTSIDE_HGT_RANGE" if outside else None)
 
     def _surface_scalar(self, variable: str, latitude: float, longitude: float, target: datetime):
-        times = [key[0] for key in self.surface if key[2] == variable]
+        keys = [key for key in self.surface if key[2] == variable
+                and (variable != "tmp_surface" or self.surface_temperature_level is None
+                     or key[1] == self.surface_temperature_level)]
+        times = [key[0] for key in keys]
         bracket = _time_bracket(times, target)
         if bracket is None:
             return None
@@ -129,7 +133,7 @@ class WeatherDataset:
         trace = []
         interpolation_times = bracket[:1] if bracket[0] == bracket[1] else bracket
         for valid in interpolation_times:
-            candidates = [key for key in self.surface if key[0] == valid and key[2] == variable]
+            candidates = [key for key in keys if key[0] == valid]
             if not candidates:
                 return None
             values, lat, lon = self.surface[candidates[0]]

@@ -117,3 +117,5 @@ def write_case(directory):
 if __name__ == "__main__":
     import sys
     write_case(sys.argv[1])
+    from gsm_runtime_case import write_case as write_gsm_case
+    write_gsm_case(sys.argv[1])

@@ -1,7 +1,7 @@
 """JMA GPV weather download, interpolation, and provenance tools."""
 
 from .msm.client import DEFAULT_BOUNDS, MsmClient
-from .gsm import GsmClient, PreparedGsmForecast
+from .gsm import GsmClient, PreparedGsmForecast, GsmPreparedData
 from .coverage import CoveragePoint, CoverageState, SpecCoverage
 from .models import Bounds, SurfaceTemperatureQuery, AloftTemperatureQuery
 from .msm.dataset import PreparedForecast
@@ -20,7 +20,7 @@ from .models import (
 from .msm.terrain import GridTerrainProvider
 
 __all__ = [
-    "GsmClient", "PreparedGsmForecast", "CoveragePoint", "CoverageState", "SpecCoverage",
+    "GsmClient", "PreparedGsmForecast", "GsmPreparedData", "CoveragePoint", "CoverageState", "SpecCoverage",
     "SurfaceTemperatureQuery", "AloftTemperatureQuery",
     "DEFAULT_BOUNDS",
     "AloftQuery",
@@ -39,4 +39,4 @@ __all__ = [
     "WeatherVariable",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
