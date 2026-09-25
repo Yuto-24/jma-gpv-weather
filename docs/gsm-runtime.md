@@ -130,3 +130,9 @@ Node / Linux ChromiumのPyodide 0.27.7（CPython 3.12.7）で、
 0 m/2 mの異なる気温が共存する55,949 bytesのsnapshotで、格納順を変えても
 DesktopとNode / Chromium Pyodideの2 m queryが一致した。Native cold / warm cacheの
 公開query・provenanceも一致し、warm時の再decodeがないことを回帰テストで確認した。
+
+同日の追加実データ検証：`JMA_GPV_REAL_GSM=1 pytest -q -s tests/test_real_gsm.py`
+が成功（338.60秒）。RISHの20260912000000 Run、8 GRIBファイルを取得し、
+FH0/1.5/131.5/133.5/264のquery・時間端・HGT coverage・source hash、
+直接pygribで読んだ850 hPaと2 m気温の一致、cold/warm cacheの一致を確認した。
+これは宮崎周辺の小範囲に対するNative検証で、全域portable payloadや物理端末の保証ではない。
