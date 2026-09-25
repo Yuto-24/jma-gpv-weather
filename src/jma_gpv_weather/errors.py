@@ -56,3 +56,7 @@ class GsmRunUnavailableError(GsmError):
 
 class GsmProcessingError(GsmError):
     """Download, GRIB, normalized cache, or processing failure."""
+
+
+class GsmCacheIntegrityError(GsmProcessingError):
+    """Malformed or foreign portable GSM data; never specification coverage."""

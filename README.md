@@ -51,6 +51,11 @@ desktopの通常依存・GRIB/NetCDFキャッシュ経路は維持します。
 取得済みlisting、Run固定・更新通知、生成側と利用側の手順は
 [MSM runtime境界](docs/msm-runtime.md)を参照してください。
 
+0.6.0では同じ境界をGSM日本域へ追加しました。`GsmPreparedData`、
+`GsmClient.listing_urls()`、取得済み`listings=`と`prepared_data=`を使用できます。
+GSM固有の時間端・HGT判定・Run固定と失敗分類を維持します。
+詳細は[GSM Local / Pyodide公開境界](docs/gsm-runtime.md)を参照してください。
+
 ## Python API
 
 ```python

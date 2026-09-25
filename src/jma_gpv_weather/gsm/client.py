@@ -37,19 +37,33 @@ class GsmClient:
             raise GsmCoverageError(result)
         return result
 
-    def discover_runs(self, requirements, *, as_of=None):
+    def listing_urls(self, requirements, *, as_of=None):
+        """Required source directories; no acquisition or filesystem access."""
         coverage = self._coverage(requirements, as_of=as_of)
         days = sorted({r.initial_time_utc.date() for r in coverage.candidate_runs}, reverse=True)
+        return tuple(self.source.directory_url(day) for day in days)
+
+    def discover_runs(self, requirements, *, as_of=None, listings=None):
+        """Discover from desktop cache or a complete acquired URL -> text mapping.
+
+        Missing entries are discovery failures, never an observed empty directory.
+        Supplied listings bypass acquisition and filesystem cache entirely.
+        """
+        coverage = self._coverage(requirements, as_of=as_of)
         files = []
-        for day in days:
-            directory = self.source.directory_url(day)
+        for directory in self.listing_urls(requirements, as_of=as_of):
             try:
-                listing = cached_listing(directory, self.cache_dir, self.source.read_listing)
+                if listings is None:
+                    listing = cached_listing(directory, self.cache_dir, self.source.read_listing)
+                else:
+                    if directory not in listings or not isinstance(listings[directory], str):
+                        raise ValueError(f"Missing or invalid acquired listing: {directory}")
+                    listing = listings[directory]
+                files.extend(spec.parse_listing(listing, directory))
             except Exception as exc:
                 # Fail explicitly, even when an older day succeeded: claiming the
                 # latest compatible run would otherwise hide a partial discovery.
                 raise GsmDiscoveryError(f"GSM listing failed: {directory}: {exc}") from exc
-            files.extend(spec.parse_listing(listing, directory))
         candidates = {r.initial_time_utc for r in coverage.candidate_runs}
         runs = spec.select_compatible_runs((f for f in files if f.run_utc in candidates), requirements)
         if not runs:
@@ -85,14 +99,24 @@ class GsmClient:
                     ("UPDATE_AVAILABLE",) if update else ())
         return ForecastRunStatus(selected_run, latest, update, spec_covers and found, warnings)
 
-    def prepare_run(self, run, requirements, available_runs=None):
+    def prepare_run(self, run, requirements, available_runs=None, *, prepared_data=None):
+        """Prepare desktop data or validate portable data without I/O/native decode."""
         from .dataset import PreparedGsmForecast
         run = RunId(run.initial_time_utc.astimezone(UTC))
         self._coverage(requirements, run=run)
+        if prepared_data is not None:
+            from .prepared import GsmPreparedData
+            if not isinstance(prepared_data, GsmPreparedData):
+                raise TypeError("prepared_data must be GsmPreparedData")
+            prepared_data.validate()
+            if available_runs is None:
+                available_runs = spec.select_compatible_runs(prepared_data.selection.files, requirements)
         runs = self._runs(requirements, available_runs)
         selection = next((r for r in runs if r.run_utc == run.initial_time_utc), None)
         if selection is None:
             raise GsmRunUnavailableError(f"Selected GSM run {run} was not discovered with all required files")
+        if prepared_data is not None:
+            return prepared_data._prepare(selection, requirements)
         needed = spec.required_valid_times(requirements, run.initial_time_utc)
         times = tuple(sorted({t for ts in needed.values() for t in ts}))
 

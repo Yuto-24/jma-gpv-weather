@@ -290,7 +290,7 @@ def test_archive_budgets_reject_before_numpy_load(case, monkeypatch, limit):
         limits = {"_MAX_PAYLOAD_BYTES": len(payload), "_MAX_MEMBERS": len(sizes),
                   "_MAX_MEMBER_BYTES": max(sizes), "_MAX_TOTAL_BYTES": sum(sizes),
                   "_MAX_METADATA_BYTES": archive.getinfo("metadata.npy").file_size}
-    monkeypatch.setattr(f"jma_gpv_weather.msm.prepared.{limit}", limits[limit] - 1)
+    monkeypatch.setattr(f"jma_gpv_weather.prepared.{limit}", limits[limit] - 1)
     monkeypatch.setattr(np, "load", lambda *a, **kw: pytest.fail("np.load called before budget rejection"))
     with pytest.raises(CacheIntegrityError, match="limit"):
         MsmPreparedData.from_bytes(payload)
@@ -304,7 +304,7 @@ def test_archive_budgets_accept_exact_limits(case, monkeypatch):
                   "_MAX_MEMBER_BYTES": max(sizes), "_MAX_TOTAL_BYTES": sum(sizes),
                   "_MAX_METADATA_BYTES": archive.getinfo("metadata.npy").file_size}
     for limit, value in limits.items():
-        monkeypatch.setattr(f"jma_gpv_weather.msm.prepared.{limit}", value)
+        monkeypatch.setattr(f"jma_gpv_weather.prepared.{limit}", value)
     restored = MsmPreparedData.from_bytes(payload)
     assert restored.source_hashes == case[-1].source_hashes
 
@@ -333,7 +333,7 @@ def test_member_count_rejected_before_zipinfo_allocation(monkeypatch, forge_coun
     if forge_count:
         end = payload.rfind(b"PK\x05\x06")
         struct.pack_into("<HH", payload, end + 8, 1, 1)
-    monkeypatch.setattr("jma_gpv_weather.msm.prepared.ZipFile",
+    monkeypatch.setattr("jma_gpv_weather.prepared.ZipFile",
                         lambda *a, **kw: pytest.fail("ZipInfo allocation before member count rejection"))
     with pytest.raises(CacheIntegrityError, match="member count limit"):
         MsmPreparedData.from_bytes(bytes(payload))

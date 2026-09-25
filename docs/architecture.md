@@ -101,3 +101,9 @@ package renameに関するPR #14の判断と、Issue #13で導入したモデル
 Issue #6の公式Pzs取得とIssue #8の明示opt-in TOPOは独立した判断であり、developの実装やDraft PRを
 取り込まない。MSM地形未指定時は`MODEL_TERRAIN_UNAVAILABLE`のまま。DEM/MSLPへの暗黙fallbackはない。
 GSMにQNHや地形取得を先行実装しない。
+
+## Portable runtime records
+
+MSMとGSM日本域のportable snapshotはmodel別の検証を各packageの`prepared.py`に持つ。
+共通`prepared.py`はbounded ZIP/NPY codecのみを所有し、modelの予報間隔・気圧面・source互換性を判断しない。
+公開契約は[MSM](msm-runtime.md)と[GSM](gsm-runtime.md)を参照。

@@ -23,10 +23,12 @@ if (!wheelPath) {
 const wheelName = basename(wheelPath);
 const require = createRequire(import.meta.url);
 const runtimeDir = dirname(require.resolve("pyodide/package.json"));
-const python = await readFile(resolve(here, "acceptance.py"), "utf8");
+const python = await readFile(resolve(here, "acceptance.py"), "utf8") + "\n" + await readFile(resolve(here, "gsm_acceptance.py"), "utf8");
 const files = new Map([
   ["/case/case.json", await readFile(resolve(caseDir, "case.json"))],
   ["/case/prepared.npz", await readFile(resolve(caseDir, "prepared.npz"))],
+  ["/case/gsm-case.json", await readFile(resolve(caseDir, "gsm-case.json"))],
+  ["/case/gsm-prepared.npz", await readFile(resolve(caseDir, "gsm-prepared.npz"))],
   [`/${wheelName}`, await readFile(wheelPath)],
   ["/acceptance.py", Buffer.from(python)],
 ]);
@@ -52,7 +54,7 @@ const server = createServer(async (request, response) => {
     const path = new URL(request.url, "http://localhost").pathname;
     if (path === "/") {
       response.setHeader("Content-Type", "text/html");
-      response.end('<!doctype html><title>MSM Pyodide acceptance</title><script src="/pyodide/pyodide.js"></script>');
+      response.end('<!doctype html><title>MSM/GSM Pyodide acceptance</title><script src="/pyodide/pyodide.js"></script>');
     } else if (files.has(path)) {
       response.end(files.get(path));
     } else if (!path.endsWith(".whl") && path.startsWith("/pyodide/") && basename(path) === path.slice("/pyodide/".length)) {
@@ -89,7 +91,7 @@ from zoneinfo import ZoneInfo
 assert datetime(2026, 1, 1, tzinfo=ZoneInfo("Asia/Tokyo")).utcoffset() == timedelta(hours=9)`);
     await pyodide.runPythonAsync(`import micropip; await micropip.install("${origin}/${wheelName}")`);
     pyodide.FS.mkdir("/case");
-    for (const path of ["/case/case.json", "/case/prepared.npz"]) {
+    for (const path of ["/case/case.json", "/case/prepared.npz", "/case/gsm-case.json", "/case/gsm-prepared.npz"]) {
       const response = await fetch(origin + path);
       pyodide.FS.writeFile(path, new Uint8Array(await response.arrayBuffer()));
     }
