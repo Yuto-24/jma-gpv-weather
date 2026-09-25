@@ -41,6 +41,17 @@ def gsm_acceptance():
     }, default=str))
     compare(result, case["expected"])
     assert not Path("/no-cache").exists()
+    assert {key[1] for key in data.surface if key[2] == "tmp_surface"} == {0, 2}
+    for reverse in (False, True):
+        ordered = GsmPreparedData.from_bytes(payload)
+        if reverse:
+            ordered.surface = dict(reversed(list(ordered.surface.items())))
+        ordered = GsmPreparedData.from_bytes(ordered.to_bytes())
+        prepared = client.prepare_run(selected, req, prepared_data=ordered)
+        for query in queries:
+            if isinstance(query, SurfaceTemperatureQuery):
+                assert prepared.query(query).values["temperature_k"] > 280
+                assert prepared.query(query) == forecast.query(query)
     warm = GsmPreparedData.from_bytes(data.to_bytes())
     assert client.prepare_run(selected, req, prepared_data=warm).query(queries[0]) == forecast.query(queries[0])
     narrow = ForecastRequirements((req.valid_times[0],), frozenset({WeatherVariable.SURFACE_TEMPERATURE}))

@@ -136,7 +136,7 @@ class GsmClient:
                 surface, pressure = prepare_records(
                     self.cache_dir, run, spec.interpolation_bounds(self.bounds), times, paths, hashes,
                     pressure_levels=spec.LEVELS_HPA, verify_manifest=True,
-                    validate_records=validate_records,
+                    validate_records=validate_records, surface_temperature_level=2,
                 )
         except GsmProcessingError:
             raise

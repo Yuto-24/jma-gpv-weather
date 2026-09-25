@@ -11,6 +11,7 @@ from .spec import LEVELS_HPA, required_valid_times
 
 class PreparedGsmForecast(WeatherDataset):
     trace_pressure_levels = True
+    surface_temperature_level = 2
     def __init__(self, selection, surface, pressure, source_hashes, requirements):
         super().__init__(selection, surface, pressure, source_hashes, pressure_levels=LEVELS_HPA)
         self.requirements = requirements

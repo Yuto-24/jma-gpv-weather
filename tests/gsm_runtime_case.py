@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import numpy as np
@@ -57,6 +58,7 @@ def records(paths, target_date, bounds, valid_times, *, pressure_levels):
         hour = (valid - INITIAL).total_seconds() / 3600
         # These are the actual GSM product schedules, not the union of both.
         if hour in spec.forecast_hours(INITIAL, "Lsurf"):
+            surface[valid, 0, "tmp_surface"] = (250 + offset, lat, lon)
             surface[valid, 2, "tmp_surface"] = (280 + hour / 10 + offset, lat, lon)
             surface[valid, 10, "u"] = (np.ones_like(lat), lat, lon)
         if hour in spec.forecast_hours(INITIAL, "L-pall"):
@@ -105,7 +107,9 @@ def results(client, req, runs, selected, forecast):
 def write_case(directory):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    case = desktop_case(directory / "gsm-desktop-cache")
+    # Always exercise the decoded coexistence case, even when regenerated.
+    with TemporaryDirectory(prefix="gsm-desktop-", dir=directory) as cache:
+        case = desktop_case(Path(cache))
     client, req, runs, selected, forecast = case
     payload = GsmPreparedData.from_forecast(forecast).to_bytes()
     (directory / "gsm-prepared.npz").write_bytes(payload)

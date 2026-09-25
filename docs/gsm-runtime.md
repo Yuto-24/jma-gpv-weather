@@ -69,7 +69,9 @@ forecast = client.prepare_run(
 - record keyはawareなvalid time、整数level、variable。valueは同一shapeの2-D NumPy
   `(values, latitude, longitude)`。矩形・単調な日本域格子をproduct内で統一する。
 - pressureはGSMの既存1000–100 hPaの16面、HGT（m）、U/V（m/s）、TMP（K）。
-  surfaceは共通decoderの0/2 m気温と補助fieldを保持するが、GSM queryには従来どおり2 m気温を要求する。
+  surfaceはsnapshot元に存在する0/2 m気温と補助fieldを保持する。GSM queryは格納順に依存せず2 m気温のみを使う。
+  Native normalized cacheは従来の単一surface level表現で2 m値を保存するため、warm snapshotに0 m補助記録が残る保証はない。
+  GSMは`normalized/v2-surface-2`を使い、0/2 mを区別しなかった旧v1 cacheを再利用しない。MSM cacheは変更しない。
   0 mレコードだけでは不足fieldの処理エラーとなる。GSM地上風/QNH APIは追加しない。
 - 時間端は選択RunとproductのGSM仕様を用いる。FH132以降のL-pall 6時間、Lsurf 3時間への
   切替も既存GSM APIと同じ。MSMの予報間隔を流用しない。
@@ -123,3 +125,8 @@ Review修正後のwheel再検証は236件成功、同じopt-in 2件skip。共通
 Node / Linux ChromiumのPyodide 0.27.7（CPython 3.12.7）で、
 54,518 bytesのGSM snapshotから6 queryと全provenance・Run status・coverageが一致した。
 同時にMSMの既存5 queryも成功した。
+
+追加review修正後はPython 3.12で239件成功、実RISH opt-in 2件skip。
+0 m/2 mの異なる気温が共存する55,949 bytesのsnapshotで、格納順を変えても
+DesktopとNode / Chromium Pyodideの2 m queryが一致した。Native cold / warm cacheの
+公開query・provenanceも一致し、warm時の再decodeがないことを回帰テストで確認した。

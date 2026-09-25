@@ -75,7 +75,6 @@ class GsmPreparedData:
                           "rh": (0, 2), "sp": (0,), "mslp": (0,)}
         for kind, records in (("Lsurf", self.surface), ("L-pall", self.pressure)):
             reference = None
-            identities = set()
             for key, record in records.items():
                 if not isinstance(key, tuple) or len(key) != 3:
                     invalid("invalid record key")
@@ -90,10 +89,6 @@ class GsmPreparedData:
                         or not any(f.kind == kind and f.first_hour <= hour <= f.last_hour
                                    for f in self.selection.files)):
                     invalid("record outside source product/time/level")
-                identity = (valid, name, level if kind == "L-pall" else None)
-                if identity in identities:
-                    invalid("ambiguous surface level")
-                identities.add(identity)
                 if not isinstance(record, (tuple, list)) or len(record) != 3:
                     invalid("invalid record arrays")
                 if any(not isinstance(a, np.ndarray) or np.ma.isMaskedArray(a) for a in record):

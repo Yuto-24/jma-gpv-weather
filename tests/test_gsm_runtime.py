@@ -12,7 +12,7 @@ import pytest
 
 from jma_gpv_weather import (
     AloftQuery, Availability, ForecastRequirements, GsmClient, GsmPreparedData,
-    MsmPreparedData, RunId, WeatherVariable,
+    MsmPreparedData, RunId, SurfaceTemperatureQuery, WeatherVariable,
 )
 from jma_gpv_weather.errors import (
     CacheIntegrityError, GsmCacheIntegrityError, GsmCoverageError, GsmDiscoveryError,
@@ -200,3 +200,28 @@ def test_decoder_zero_metre_temperature_is_structurally_valid_but_not_gsm_two_me
     with pytest.raises(GsmProcessingError) as error:
         client.prepare_run(selected, req, prepared_data=restored)
     assert not isinstance(error.value, GsmCacheIntegrityError)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_surface_temperature_uses_two_metres_with_both_decoder_levels(case, reverse):
+    client, req, _, selected, forecast = case
+    if reverse:
+        forecast.surface = dict(reversed(list(forecast.surface.items())))
+    data = GsmPreparedData.from_forecast(forecast)
+    restored = GsmPreparedData.from_bytes(data.to_bytes())
+    assert {key[1] for key in restored.surface if key[2] == "tmp_surface"} == {0, 2}
+    portable = client.prepare_run(selected, req, prepared_data=restored)
+    for query in queries():
+        if isinstance(query, SurfaceTemperatureQuery):
+            native = forecast.query(query)
+            assert native.values["temperature_k"] > 280
+            assert portable.query(query) == native
+
+
+def test_native_warm_cache_preserves_two_metre_temperature(case, monkeypatch):
+    client, req, runs, selected, forecast = case
+    expected = results(*case)
+    monkeypatch.setattr("jma_gpv_weather.grib.read_grib_records",
+                        lambda *args, **kwargs: pytest.fail("warm cache must not decode"))
+    warm = client.prepare_run(selected, req, available_runs=runs)
+    assert results(client, req, runs, selected, warm) == expected

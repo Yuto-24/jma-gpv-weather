@@ -36,7 +36,8 @@ def _netcdf_times(values):
 
 
 def save_records(
-    path: Path, surface, pressure, metadata: dict, *, pressure_levels: tuple[int, ...]
+    path: Path, surface, pressure, metadata: dict, *, pressure_levels: tuple[int, ...],
+    surface_temperature_level: int | None = None,
 ) -> None:
     import xarray as xr
 
@@ -51,7 +52,9 @@ def save_records(
         for name in SURFACE_VARIABLES:
             arrays = []
             for valid in surface_times:
-                key = next((key for key in surface if key[0] == valid and key[2] == name), None)
+                key = next((key for key in surface if key[0] == valid and key[2] == name
+                            and (name != "tmp_surface" or surface_temperature_level is None
+                                 or key[1] == surface_temperature_level)), None)
                 arrays.append(
                     np.full((len(lat), len(lon)), np.nan)
                     if key is None
@@ -138,7 +141,7 @@ def _to_datetime(value) -> datetime:
 
 
 def prepare_records(cache_dir, run, prepared_bounds, valid_times, paths, hashes, *, pressure_levels,
-                    verify_manifest=False, validate_records=None):
+                    verify_manifest=False, validate_records=None, surface_temperature_level=None):
     """Reuse the same atomic normalized cache for each caller-owned model root.
 
     Optional model validation raises ValueError for incomplete records. Validate
@@ -150,7 +153,7 @@ def prepare_records(cache_dir, run, prepared_bounds, valid_times, paths, hashes,
     normalized_path = (
         cache_dir
         / "normalized"
-        / "v1"
+        / ("v1" if surface_temperature_level is None else f"v2-surface-{surface_temperature_level}")
         / str(run)
         / key
         / "weather.nc"
@@ -193,6 +196,7 @@ def prepare_records(cache_dir, run, prepared_bounds, valid_times, paths, hashes,
                     "source_hashes_json": json.dumps(hashes, sort_keys=True),
                 },
                 pressure_levels=pressure_levels,
+                surface_temperature_level=surface_temperature_level,
             )
             manifest_temp = manifest_path.with_suffix(".json.tmp")
             manifest_temp.write_text(
