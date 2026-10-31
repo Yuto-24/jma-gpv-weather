@@ -9,4 +9,4 @@
 - Respect rate limits and the stated retry time. A quota reset alone is not a reason to re-request; reassess whether review is still necessary. Do not post repeated requests while waiting or change paid plans to obtain more reviews.
 - Preserve all existing independent-review requirements and actual repository gates. Required latest-commit approval, required checks, unresolved conversations, and effective change requests take precedence over the optimization above. Do not dismiss reviews, weaken protection, or mark unreviewed work as approved to bypass a gate; report any required gate that cannot be verified or satisfied. Merge and deployment still require their existing authorization.
 
-When documentation and existing code differ, follow the conventions used in the existing code and list every discrepancy you found in your final response.
+When documentation and existing code differ in coding style or conventions, follow the existing code's style and conventions without overriding explicit requirements, correctness, security, or data-integrity constraints, and list every discrepancy you found in your final response.
