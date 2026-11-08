@@ -114,3 +114,32 @@ def test_file_disappearing_after_selection_does_not_download(tmp_path):
     f.unlink()
     with pytest.raises(DownloadError):
         c.prepare_run(RunId(run.run_utc),r,available_runs=(run,))
+
+
+def test_explicit_listing_still_filters_incomplete_recovery_runs(tmp_path):
+    c,s,r,p=setup(tmp_path, partial=True)
+    c.discover_runs(r)
+    runs=c.discover_runs(r, listings={URL:s.text})
+    assert len(runs)==1
+    assert runs[0].run_utc.hour==0
+
+
+def test_saved_listing_uses_normal_cache_decoding(tmp_path):
+    c,s,r,p=setup(tmp_path)
+    p.write_bytes(p.read_bytes()+b'\xff')
+    os.utime(p,(1,1))
+    assert c.discover_runs(r)
+
+
+@pytest.mark.parametrize('supplied', ['empty', 'previous_action'])
+def test_supplied_runs_cannot_bypass_recovery_policy(tmp_path, supplied):
+    c,s,r,p=setup(tmp_path)
+    runs=c.discover_runs(r)
+    run=runs[0]
+    f=tmp_path/'raw'/f'{run.run_utc:%Y%m%d%H%M%S}'/run.files[0].name
+    f.write_bytes(b'broken')
+    c.begin_calculation()
+    with pytest.raises(CacheIntegrityError):
+        c.prepare_run(RunId(run.run_utc),r,available_runs=() if supplied=='empty' else runs)
+    assert s.calls==2
+    assert f.read_bytes()==b'broken'

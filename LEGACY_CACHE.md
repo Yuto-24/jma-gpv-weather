@@ -20,7 +20,12 @@ good result. A fixed Run is never replaced by another cached Run.
 `acquisition_metadata` identifies cached acquisition and `LISTING_REFRESH_FAILED`.
 It does not assert that cached discovery is the latest upstream inventory.
 The application must show this status and retain it with the actual Run in the
-saved calculation. The next action retries ordinary listing refresh.
+saved calculation. The next action retries ordinary listing refresh during
+`discover_runs` / `resolve_run`, or native `prepare_run`. Supplied `prepared_data`
+retains its acquisition-free contract: integrations reusing it must call
+`discover_runs` first if they require a refresh. Legacy clears prepared data
+between actions. Supplied native Runs belong to the current action; a new
+action discovers again before preparing them.
 
 Build with `uv build --wheel`. Run `pytest` without opting into real-data tests;
 `tests/test_cached_client.py` covers stale recovery, partial caches, fixed Runs,
