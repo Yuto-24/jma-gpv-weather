@@ -10,7 +10,8 @@ import jma_gpv_weather
 
 def test_distribution_and_canonical_api():
     distribution = importlib.metadata.distribution('jma-gpv-weather')
-    assert distribution.version == jma_gpv_weather.__version__ == '0.5.0'
+    assert distribution.version == '0.5.0+legacycache.1'
+    assert jma_gpv_weather.__version__ == '0.5.0'  # Unchanged base API contract.
     assert importlib.util.find_spec('msm_wind') is None
     assert all(getattr(jma_gpv_weather, name) is not None for name in jma_gpv_weather.__all__)
     assert jma_gpv_weather.MsmClient.__module__ == 'jma_gpv_weather.msm.client'

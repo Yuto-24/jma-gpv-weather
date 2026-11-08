@@ -47,6 +47,7 @@ def validate_grib(path: Path) -> None:
 def acquire_files(
     files: Iterable[RemoteFile], cache_dir: Path,
     downloader: Callable[[RemoteFile, Path], Path],
+    *, cache_only: bool = False,
 ) -> tuple[tuple[Path, ...], dict[str, str]]:
     files = tuple(files)
     paths: list[Path] = []
@@ -59,13 +60,19 @@ def acquire_files(
             if destination.exists():
                 try:
                     validate_grib(destination)
-                except (OSError, ValueError):
+                except (OSError, ValueError) as error:
+                    if cache_only:
+                        from .errors import CacheIntegrityError
+                        raise CacheIntegrityError(f"Invalid cached GRIB: {remote.name}") from error
                     corrupt = destination.with_name(
                         destination.name
                         + f".corrupt.{datetime.now(timezone.utc):%Y%m%d%H%M%S}"
                     )
                     destination.replace(corrupt)
             if not destination.exists():
+                if cache_only:
+                    from .errors import DownloadError
+                    raise DownloadError(f"Required cached GRIB is missing: {remote.name}")
                 downloader(remote, destination)
             validate_grib(destination)
             hashes[remote.url] = sha256_file(destination)
