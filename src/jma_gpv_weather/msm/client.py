@@ -108,6 +108,7 @@ class MsmClient:
         terrain_provider=None,
         *,
         prepared_data: MsmPreparedData | None = None,
+        cache_only: bool = False,
     ):
         """Prepare through the desktop cache or validate supplied portable MSM data.
 
@@ -140,7 +141,12 @@ class MsmClient:
         if prepared_data is not None:
             return prepared_data._prepare(selection, requirements, terrain_provider=terrain_provider)
         with msm_error_boundary():
-            paths, hashes = acquire_files(selection.files, self.cache_dir, self.source.download)
+            if cache_only:
+                paths, hashes = acquire_files(
+                    selection.files, self.cache_dir, self.source.download, cache_only=True,
+                )
+            else:
+                paths, hashes = acquire_files(selection.files, self.cache_dir, self.source.download)
         needed = required_valid_times(requirements)
         valid_times = tuple(
             sorted({value for values in needed.values() for value in values})
