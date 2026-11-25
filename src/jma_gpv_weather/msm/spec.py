@@ -7,6 +7,7 @@ from typing import Iterable, Sequence
 from ..errors import MsmError
 from ..models import Bounds, RemoteFile, RunSelection, ForecastRequirements, WeatherVariable
 from ..time_utils import UTC, expected_valid_times
+from ..wx import WX_VARIABLES, coverage_levels
 
 LEVELS_HPA = (1000, 975, 950, 925, 900, 850, 800, 700, 600, 500)
 FILE_RE = re.compile(
@@ -15,8 +16,8 @@ FILE_RE = re.compile(
 )
 MAX_FORECAST_HOURS = 78
 DEFAULT_BOUNDS = Bounds()
-SURFACE_VARIABLES = {WeatherVariable.SURFACE_TEMPERATURE, WeatherVariable.SURFACE_WIND, WeatherVariable.ESTIMATED_QNH}
-PRESSURE_VARIABLES = {WeatherVariable.ALOFT_WIND, WeatherVariable.ALOFT_TEMPERATURE}
+SURFACE_VARIABLES = {WeatherVariable.SURFACE_TEMPERATURE, WeatherVariable.SURFACE_WIND, WeatherVariable.ESTIMATED_QNH, *WX_VARIABLES}
+PRESSURE_VARIABLES = {WeatherVariable.ALOFT_WIND, WeatherVariable.ALOFT_TEMPERATURE, WeatherVariable.PRESSURE_RELATIVE_HUMIDITY}
 
 def parse_listing(html: str, directory_url: str) -> list[RemoteFile]:
     result = {}
@@ -121,9 +122,8 @@ def select_compatible_runs(
 def check_coverage(requirements, *, points=(), run=None, as_of=None):
     """Offline contract for the current MSM API; legacy discovery is unchanged.
 
-    This API decodes 1000..500 hPa, a subset of the published MSM levels.
-    Coverage therefore describes the usable library capability, not unimplemented
-    fields higher than 500 hPa. MSL heights still require actual HGT.
+    Wind/temperature retain 1000..500 hPa; opt-in native RH uses 1000..300 hPa.
+    Mixed pressure requests expose the intersection. MSL heights still require HGT.
     """
     from ..coverage import candidate_initial_times, evaluate_coverage
     as_of = datetime.now(UTC) if as_of is None else as_of
@@ -141,4 +141,5 @@ def check_coverage(requirements, *, points=(), run=None, as_of=None):
                for times in needed.values() for valid in times):
             compatible.append(initial)
     return evaluate_coverage(requirements, points, Bounds(22.4, 47.6, 120, 150),
-                             LEVELS_HPA, frozenset(WeatherVariable), compatible)
+                             coverage_levels(requirements.variables, LEVELS_HPA),
+                             frozenset(WeatherVariable), compatible)

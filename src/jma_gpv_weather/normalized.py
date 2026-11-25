@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from .models import Bounds
+from .errors import GpvError
 
 SURFACE_VARIABLES = ("u", "v", "sp", "mslp", "tmp_surface", "rh")
 PRESSURE_VARIABLES = ("hgt", "u", "v", "tmp")
@@ -141,7 +142,8 @@ def _to_datetime(value) -> datetime:
 
 
 def prepare_records(cache_dir, run, prepared_bounds, valid_times, paths, hashes, *, pressure_levels,
-                    verify_manifest=False, validate_records=None, surface_temperature_level=None):
+                    verify_manifest=False, validate_records=None, surface_temperature_level=None,
+                    variables=None):
     """Reuse the same atomic normalized cache for each caller-owned model root.
 
     Optional model validation raises ValueError for incomplete records. Validate
@@ -150,10 +152,15 @@ def prepare_records(cache_dir, run, prepared_bounds, valid_times, paths, hashes,
     from .cache import file_lock, sha256_file
     from .grib import read_grib_records
     key = normalized_key(prepared_bounds, valid_times)
+    namespace = "v1" if surface_temperature_level is None else f"v2-surface-{surface_temperature_level}"
+    if variables is not None:
+        # Opt-in WX has its own cache identity; legacy caches cannot supply RH.
+        namespace = "v3-wx-" + "-".join(sorted(v.value for v in variables))
+        verify_manifest = True
     normalized_path = (
         cache_dir
         / "normalized"
-        / ("v1" if surface_temperature_level is None else f"v2-surface-{surface_temperature_level}")
+        / namespace
         / str(run)
         / key
         / "weather.nc"
@@ -168,10 +175,11 @@ def prepare_records(cache_dir, run, prepared_bounds, valid_times, paths, hashes,
                     if (manifest.get("source_hashes") != hashes
                             or manifest.get("normalized_sha256") != sha256_file(normalized_path)):
                         raise ValueError("normalized cache hash/source mismatch")
-                surface, pressure = load_records(normalized_path)
+                surface, pressure = (load_records(normalized_path) if variables is None
+                                     else _load_wx_records(normalized_path))
                 if validate_records is not None:
                     validate_records(surface, pressure)
-            except (OSError, ValueError):
+            except (OSError, ValueError, GpvError):
                 corrupt = normalized_path.with_suffix(".nc.corrupt")
                 normalized_path.replace(corrupt)
                 surface, pressure = {}, {}
@@ -184,10 +192,12 @@ def prepare_records(cache_dir, run, prepared_bounds, valid_times, paths, hashes,
                 prepared_bounds,
                 valid_times=valid_times,
                 pressure_levels=pressure_levels,
+                **({"variables": variables} if variables is not None else {}),
             )
             if validate_records is not None:
                 validate_records(surface, pressure)
-            save_records(
+            save = save_records if variables is None else _save_wx_records
+            save(
                 normalized_path,
                 surface,
                 pressure,
@@ -218,3 +228,56 @@ def prepare_records(cache_dir, run, prepared_bounds, valid_times, paths, hashes,
             )
             manifest_temp.replace(manifest_path)
     return surface, pressure
+
+
+def _save_wx_records(path, surface, pressure, metadata, **_):
+    """Dense NetCDF arrays with an explicit key inventory, including all-NaN records.
+
+    The inventory preserves missing-record versus missing-value semantics and
+    surface levels. Legacy normalized writers/readers are deliberately unchanged.
+    """
+    import xarray as xr
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".nc.tmp")
+    for index, (group, records) in enumerate((("surface", surface), ("pressure", pressure))):
+        arrays, coords = {}, {}
+        keys = sorted(records)
+        if keys:
+            lat, lon = _coordinates(records)
+            times = sorted({key[0] for key in keys})
+            coords = {"valid_time": _netcdf_times(times), "latitude": lat, "longitude": lon}
+            for name in sorted({key[2] for key in keys}):
+                levels = sorted({key[1] for key in keys if key[2] == name})
+                coords[f"{name}_level"] = levels
+                data = np.full((len(times), len(levels), len(lat), len(lon)), np.nan)
+                for ti, valid in enumerate(times):
+                    for li, level in enumerate(levels):
+                        if (valid, level, name) in records:
+                            data[ti, li] = records[valid, level, name][0]
+                arrays[name] = (("valid_time", f"{name}_level", "latitude", "longitude"), data)
+        with xr.Dataset(arrays, coords=coords) as dataset:
+            dataset.attrs.update({"schema_version": 3, **metadata,
+                                  "record_keys": json.dumps([(t.isoformat(), level, name)
+                                                             for t, level, name in keys])})
+            dataset.to_netcdf(temporary, engine="h5netcdf", group=group, mode="w" if index == 0 else "a")
+    temporary.replace(path)
+
+
+def _load_wx_records(path):
+    import xarray as xr
+    groups = []
+    for group in ("surface", "pressure"):
+        records = {}
+        with xr.open_dataset(path, engine="h5netcdf", group=group) as dataset:
+            if dataset.attrs.get("schema_version") != 3:
+                raise ValueError("Invalid WX normalized schema")
+            keys = json.loads(dataset.attrs["record_keys"])
+            if keys:
+                lat, lon = np.meshgrid(dataset.latitude.values, dataset.longitude.values, indexing="ij")
+                for valid, level, name in keys:
+                    valid = datetime.fromisoformat(valid)
+                    values = dataset[name].sel({"valid_time": _netcdf_times([valid])[0],
+                                                f"{name}_level": level}).values
+                    records[valid, level, name] = (values, lat, lon)
+        groups.append(records)
+    return tuple(groups)

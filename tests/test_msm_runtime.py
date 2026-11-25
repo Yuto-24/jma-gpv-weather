@@ -150,7 +150,7 @@ def test_invalid_injected_data_is_processing_failure(case, damage):
     elif damage == "time":
         data.pressure[(key[0].replace(tzinfo=None), *key[1:])] = data.pressure.pop(key)
     elif damage == "level":
-        data.pressure[(key[0], 400, key[2])] = data.pressure.pop(key)
+        data.pressure[(key[0], 250, key[2])] = data.pressure.pop(key)
     elif damage == "dtype":
         data.pressure[key] = (value.astype(object), lat, lon)
     elif damage == "masked":

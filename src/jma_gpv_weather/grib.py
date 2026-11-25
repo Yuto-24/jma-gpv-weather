@@ -8,6 +8,8 @@ import numpy as np
 from .models import Bounds
 from .errors import GpvError
 from .time_utils import UTC, target_window
+from .wx import requested_fields, CLOUD_FIELDS
+from .models import PRESSURE_RH_LEVELS_HPA, WeatherVariable
 
 def _subset_message(message, bounds: Bounds):
     # Request a halo because nominal 29.7 can be encoded as 29.699999..., then
@@ -25,10 +27,23 @@ def _subset_message(message, bounds: Bounds):
         raise GpvError("No grid points inside requested rectangle")
     return values[np.ix_(rows, columns)], lat[np.ix_(rows, columns)], lon[np.ix_(rows, columns)]
 
-def _identity(message, pressure_levels):
+def _identity(message, pressure_levels, variables=None):
     level_type, level = getattr(message, "typeOfLevel", ""), int(getattr(message, "level", -1))
     category, number = getattr(message, "parameterCategory", None), getattr(message, "parameterNumber", None)
     short_name = str(getattr(message, "shortName", "")).lower()
+    if variables is not None:
+        # JMA total cloud cover can have shortName/units="unknown" in ecCodes.
+        # Use the numeric GRIB identity, not a decoder-specific name.
+        if (WeatherVariable.CLOUD_COVER in variables and category == 6
+                and number in (1, 3, 4, 5)
+                and level_type in ("surface", "groundOrWaterSurface")):
+            return dict(zip((1, 3, 4, 5), CLOUD_FIELDS.values()))[number], 0
+        if (WeatherVariable.PRESSURE_RELATIVE_HUMIDITY in variables
+                and level_type == "isobaricInhPa" and level in PRESSURE_RH_LEVELS_HPA):
+            if (category, number) == (1, 1):
+                return "rh", level
+            if (category, number) == (3, 5):
+                return "hgt", level
     if level_type == "heightAboveGround" and level == 10 and category == 2 and number in (2, 3):
         return ("u" if number == 2 else "v"), 10
     if level_type == "heightAboveGround" and level in (0, 2):
@@ -58,6 +73,7 @@ def read_grib_records(
     valid_times: Iterable[datetime] | None = None,
     *,
     pressure_levels: tuple[int, ...],
+    variables=None,
 ):
     try:
         import pygrib
@@ -71,6 +87,7 @@ def read_grib_records(
     elif not requested_times:
         raise ValueError("target_date or valid_times is required")
     surface, pressure = {}, {}
+    fields = None if variables is None else requested_fields(variables, pressure_levels)
     for path in paths:
         try:
             grib = pygrib.open(str(path))
@@ -78,7 +95,7 @@ def read_grib_records(
             raise GpvError(f"Cannot open {path}: {exc}") from exc
         try:
             for message in grib:
-                identity = _identity(message, pressure_levels)
+                identity = _identity(message, pressure_levels, variables)
                 valid = message.validDate
                 valid = valid.replace(tzinfo=UTC) if valid.tzinfo is None else valid.astimezone(UTC)
                 if identity is None:
@@ -88,11 +105,15 @@ def read_grib_records(
                 if requested_times is None and not start <= valid < end:
                     continue
                 variable, level = identity
+                is_surface = level in (0, 2, 10)
+                if fields is not None and (variable not in fields[0] if is_surface
+                                           else (level, variable) not in fields[1]):
+                    continue
                 try:
                     record = _subset_message(message, bounds)
                 except Exception as exc:
                     raise GpvError(f"Failed to subset {path.name}: {exc}") from exc
-                surface_variables = {"u", "v", "tmp_surface", "rh", "sp", "mslp"}
+                surface_variables = {"u", "v", "tmp_surface", "rh", "sp", "mslp", *CLOUD_FIELDS.values()}
                 target = surface if variable in surface_variables and level in (0, 2, 10) else pressure
                 target[valid, level, variable] = record
         finally:

@@ -10,13 +10,14 @@ import re
 from ..coverage import candidate_initial_times, evaluate_coverage
 from ..models import Bounds, RunSelection, RemoteFile, WeatherVariable
 from ..time_utils import UTC
+from ..wx import WX_VARIABLES, coverage_levels
 
 DOMAIN = Bounds(20.0, 50.0, 120.0, 150.0)
 LEVELS_HPA = (1000, 975, 950, 925, 900, 850, 800, 700, 600, 500, 400, 300, 250, 200, 150, 100)
 RUN_HOURS = (0, 6, 12, 18)
 SUPPORTED_VARIABLES = frozenset({WeatherVariable.ALOFT_WIND,
                                WeatherVariable.ALOFT_TEMPERATURE,
-                               WeatherVariable.SURFACE_TEMPERATURE})
+                               WeatherVariable.SURFACE_TEMPERATURE, *WX_VARIABLES})
 FILE_RE = re.compile(
     r"Z__C_RJTD_(?P<run>\d{14})_GSM_GPV_Rjp_Gll0p1deg_(?P<kind>Lsurf|L-pall)_"
     r"FD(?P<first>\d{4})-(?P<last>\d{4})_grib2\.bin"
@@ -53,9 +54,10 @@ def required_valid_times(requirements, run):
         return None
     run = run.astimezone(UTC)
     kinds = []
-    if WeatherVariable.SURFACE_TEMPERATURE in requirements.variables:
+    if requirements.variables & {WeatherVariable.SURFACE_TEMPERATURE, *WX_VARIABLES}:
         kinds.append("Lsurf")
-    if requirements.variables & {WeatherVariable.ALOFT_WIND, WeatherVariable.ALOFT_TEMPERATURE}:
+    if requirements.variables & {WeatherVariable.ALOFT_WIND, WeatherVariable.ALOFT_TEMPERATURE,
+                                WeatherVariable.PRESSURE_RELATIVE_HUMIDITY}:
         kinds.append("L-pall")
     result = {}
     for kind in kinds:
@@ -80,7 +82,8 @@ def check_coverage(requirements, *, points=(), run=None, as_of=None):
     candidates = ((run.initial_time_utc.astimezone(UTC),) if run is not None else
                   candidate_initial_times(requirements, as_of, RUN_HOURS, 264))
     candidates = tuple(r for r in candidates if r <= as_of and required_valid_times(requirements, r))
-    return evaluate_coverage(requirements, points, DOMAIN, LEVELS_HPA, SUPPORTED_VARIABLES, candidates)
+    return evaluate_coverage(requirements, points, DOMAIN,
+                             coverage_levels(requirements.variables, LEVELS_HPA), SUPPORTED_VARIABLES, candidates)
 
 
 def parse_listing(html, directory_url):

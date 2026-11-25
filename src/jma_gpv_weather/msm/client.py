@@ -13,6 +13,7 @@ from ..models import (
 from ..sources import DataSource
 from ..sources.rish import RISH_BASE, RishSource
 from ..time_utils import UTC
+from ..wx import WX_VARIABLES, missing_wx_fields
 from ._errors import msm_error_boundary
 from .spec import (
     DEFAULT_BOUNDS, LEVELS_HPA, MAX_FORECAST_HOURS, interpolation_bounds,
@@ -150,6 +151,9 @@ class MsmClient:
             surface, pressure = prepare_records(
                 self.cache_dir, run, prepared_bounds, valid_times, paths, hashes,
                 pressure_levels=LEVELS_HPA,
+                **({"variables": requirements.variables,
+                    "validate_records": lambda s, p: self._validate_prepared(requirements, needed, s, p)}
+                   if requirements.variables & WX_VARIABLES else {}),
             )
         self._validate_prepared(requirements, needed, surface, pressure)
         return PreparedForecast(
@@ -162,7 +166,7 @@ class MsmClient:
 
     @staticmethod
     def _validate_prepared(requirements, needed, surface, pressure):
-        missing = []
+        missing = missing_wx_fields(requirements, needed, surface, pressure)
         if WeatherVariable.SURFACE_WIND in requirements.variables:
             for valid in needed.get("Lsurf", ()):
                 for name in ("u", "v"):

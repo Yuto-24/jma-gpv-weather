@@ -16,6 +16,7 @@ import zlib
 import numpy as np
 
 from .models import RemoteFile, RunSelection
+from .wx import uses_wx_records
 
 # Portable input budgets, independent of the desktop raw/NetCDF cache. Bound both
 # compressed input and advertised allocations before NumPy reads any arrays.
@@ -95,7 +96,8 @@ def _validate_archive(payload, error_type):
 def encode_prepared(data, model) -> bytes:
     """Versioned NPZ snapshot, with JSON metadata and no pickle/object arrays."""
     data.validate()
-    metadata = {"schema": 1, "model": model, "selection": asdict(data.selection),
+    schema = 2 if uses_wx_records(data.surface, data.pressure, model) else 1
+    metadata = {"schema": schema, "model": model, "selection": asdict(data.selection),
                 "source_hashes": data.source_hashes, "records": []}
     arrays = {}
     for group, records in (("surface", data.surface), ("pressure", data.pressure)):
@@ -113,7 +115,15 @@ def encode_prepared(data, model) -> bytes:
     )
     output = BytesIO()
     np.savez_compressed(output, **arrays)
-    return output.getvalue()
+    payload = output.getvalue()
+    if schema == 2:
+        # Fail on the producer too; never distribute an unreadable WX chunk.
+        from .errors import CacheIntegrityError, GsmCacheIntegrityError
+        error_type = CacheIntegrityError if model == "MSM" else GsmCacheIntegrityError
+        if len(payload) > _MAX_PAYLOAD_BYTES:
+            raise error_type("GPV prepared payload exceeds compressed size limit")
+        _validate_archive(payload, error_type)
+    return payload
 
 
 def decode_prepared(cls, payload: bytes, *, model, error_type, expected_sha256=None):
@@ -133,7 +143,7 @@ def decode_prepared(cls, payload: bytes, *, model, error_type, expected_sha256=N
         _validate_archive(payload, error_type)
         with np.load(BytesIO(payload), allow_pickle=False) as archive:
             metadata = json.loads(archive["metadata"].tobytes())
-            if metadata["schema"] != 1 or metadata["model"] != model:
+            if type(metadata["schema"]) is not int or metadata["schema"] not in (1, 2) or metadata["model"] != model:
                 raise ValueError("unsupported schema/model")
             selection = metadata["selection"]
             files = tuple(RemoteFile(**{**item, "run_utc": datetime.fromisoformat(item["run_utc"])})
@@ -150,6 +160,8 @@ def decode_prepared(cls, payload: bytes, *, model, error_type, expected_sha256=N
                 groups[group][key] = (archive[f"r{index}"], *grids[group])
             result = cls(selection, groups["surface"], groups["pressure"], metadata["source_hashes"])
             result.validate()
+            if metadata["schema"] == 1 and uses_wx_records(result.surface, result.pressure, model):
+                raise ValueError("WX records require portable schema 2")
             return result
     except error_type:
         raise

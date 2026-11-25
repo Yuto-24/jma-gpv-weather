@@ -12,6 +12,8 @@ from ..errors import GsmCacheIntegrityError
 from ..models import RemoteFile, RunSelection
 from ..prepared import encode_prepared, decode_prepared
 from ..weather import RecordMap
+from ..models import PRESSURE_RH_LEVELS_HPA
+from ..wx import CLOUD_FIELDS
 from .spec import DOMAIN, LEVELS_HPA, forecast_hours, parse_listing, required_valid_times, select_compatible_runs
 
 
@@ -70,9 +72,10 @@ class GsmPreparedData:
         ):
             invalid("source SHA-256 mapping mismatch")
         # Preserve the common decoder's ancillary surface fields. GSM's public
-        # query contract still exposes only the 2 m temperature from this group.
+        # legacy query contract exposes 2 m temperature; WX adds layer clouds/SP.
         surface_levels = {"u": (10,), "v": (10,), "tmp_surface": (0, 2),
-                          "rh": (0, 2), "sp": (0,), "mslp": (0,)}
+                          "rh": (0, 2), "sp": (0,), "mslp": (0,),
+                          **{name: (0,) for name in CLOUD_FIELDS.values()}}
         for kind, records in (("Lsurf", self.surface), ("L-pall", self.pressure)):
             reference = None
             for key, record in records.items():
@@ -83,7 +86,8 @@ class GsmPreparedData:
                         or not isinstance(level, int) or isinstance(level, bool)):
                     invalid("invalid record time/level")
                 allowed = (level in surface_levels.get(name, ()) if kind == "Lsurf"
-                           else level in LEVELS_HPA and name in ("hgt", "u", "v", "tmp"))
+                           else (level in LEVELS_HPA and name in ("hgt", "u", "v", "tmp"))
+                           or (level in PRESSURE_RH_LEVELS_HPA and name == "rh"))
                 hour = (valid - self.selection.run_utc).total_seconds() / 3600
                 if (not allowed or hour not in forecast_hours(self.selection.run_utc, kind)
                         or not any(f.kind == kind and f.first_hour <= hour <= f.last_hour

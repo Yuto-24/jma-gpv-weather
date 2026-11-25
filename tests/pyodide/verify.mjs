@@ -23,12 +23,17 @@ if (!wheelPath) {
 const wheelName = basename(wheelPath);
 const require = createRequire(import.meta.url);
 const runtimeDir = dirname(require.resolve("pyodide/package.json"));
-const python = await readFile(resolve(here, "acceptance.py"), "utf8") + "\n" + await readFile(resolve(here, "gsm_acceptance.py"), "utf8");
+const python = (await Promise.all(["acceptance.py", "gsm_acceptance.py", "wx_acceptance.py"].map(
+  name => readFile(resolve(here, name), "utf8")))).join("\n");
 const files = new Map([
   ["/case/case.json", await readFile(resolve(caseDir, "case.json"))],
   ["/case/prepared.npz", await readFile(resolve(caseDir, "prepared.npz"))],
   ["/case/gsm-case.json", await readFile(resolve(caseDir, "gsm-case.json"))],
   ["/case/gsm-prepared.npz", await readFile(resolve(caseDir, "gsm-prepared.npz"))],
+  ...await Promise.all(["msm", "gsm_japan"].flatMap(model => ["json", "npz"].map(async ext => {
+    const name = `wx-${model}.${ext}`;
+    return [`/case/${name}`, await readFile(resolve(caseDir, name))];
+  }))),
   [`/${wheelName}`, await readFile(wheelPath)],
   ["/acceptance.py", Buffer.from(python)],
 ]);
@@ -91,7 +96,8 @@ from zoneinfo import ZoneInfo
 assert datetime(2026, 1, 1, tzinfo=ZoneInfo("Asia/Tokyo")).utcoffset() == timedelta(hours=9)`);
     await pyodide.runPythonAsync(`import micropip; await micropip.install("${origin}/${wheelName}")`);
     pyodide.FS.mkdir("/case");
-    for (const path of ["/case/case.json", "/case/prepared.npz", "/case/gsm-case.json", "/case/gsm-prepared.npz"]) {
+    for (const path of ["/case/case.json", "/case/prepared.npz", "/case/gsm-case.json", "/case/gsm-prepared.npz",
+                       "/case/wx-msm.json", "/case/wx-msm.npz", "/case/wx-gsm_japan.json", "/case/wx-gsm_japan.npz"]) {
       const response = await fetch(origin + path);
       pyodide.FS.writeFile(path, new Uint8Array(await response.arrayBuffer()));
     }

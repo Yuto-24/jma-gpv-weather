@@ -1,4 +1,6 @@
 include docs/*.md
-include tests/runtime_case.py
+include tests/*runtime_case.py
+include scripts/measure_wx.py
+recursive-include docs/evidence/issue-22 *.json
 recursive-include tests/pyodide *.py *.mjs package.json package-lock.json
 prune tests/pyodide/node_modules

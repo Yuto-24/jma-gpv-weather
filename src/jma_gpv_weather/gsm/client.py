@@ -10,6 +10,7 @@ from ..models import Bounds, ForecastRunStatus, RunId, WeatherVariable
 from ..normalized import prepare_records
 from ..sources.rish import RISH_BASE, RishSource
 from ..time_utils import UTC
+from ..wx import WX_VARIABLES, missing_wx_fields
 from . import spec
 
 
@@ -137,6 +138,7 @@ class GsmClient:
                     self.cache_dir, run, spec.interpolation_bounds(self.bounds), times, paths, hashes,
                     pressure_levels=spec.LEVELS_HPA, verify_manifest=True,
                     validate_records=validate_records, surface_temperature_level=2,
+                    **({"variables": requirements.variables} if requirements.variables & WX_VARIABLES else {}),
                 )
         except GsmProcessingError:
             raise
@@ -146,8 +148,8 @@ class GsmClient:
 
     @staticmethod
     def _validate_prepared(requirements, needed, surface, pressure):
-        missing = []
-        for valid in needed.get('Lsurf', ()):
+        missing = missing_wx_fields(requirements, needed, surface, pressure)
+        for valid in needed.get('Lsurf', ()) if WeatherVariable.SURFACE_TEMPERATURE in requirements.variables else ():
             if (valid, 2, 'tmp_surface') not in surface:
                 missing.append(f'{valid}:2m:tmp_surface')
         names = {'hgt'}
@@ -155,7 +157,7 @@ class GsmClient:
             names.update(('u', 'v'))
         if WeatherVariable.ALOFT_TEMPERATURE in requirements.variables:
             names.add('tmp')
-        for valid in needed.get('L-pall', ()):
+        for valid in needed.get('L-pall', ()) if names != {'hgt'} else ():
             for level in spec.LEVELS_HPA:
                 for name in names:
                     if (valid, level, name) not in pressure:
