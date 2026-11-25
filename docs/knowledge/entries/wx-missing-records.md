@@ -29,3 +29,13 @@ record集合の一致、およびportableへの再保存を確認する。
 
 今回の実GRIBには対象値の欠測がなかったため、全NaNケースは人工格子で検証した。
 native cacheからportableへ移す際も同じ区別が必要だが、配信側の未取得assetの状態管理までは保証しない。
+
+## 依存fieldを追加したときの旧キャッシュ
+
+PR #24の`0651185`でALOFT_WINDの依存にTMPを追加しても、`8a7b09c`の
+`v3-wx-*`キャッシュは同じ要求・source hashで再利用され、両モデルの付随気温が欠けたままだった。
+file hashが正しくても、過去の依存field集合が現在の契約を満たすとは限らない。
+WX namespaceを`v4-wx-*`へ更新し、旧キャッシュを再デコードする。
+`test_pre_fix_wind_plus_wx_cache_is_rebuilt`で、有効な旧manifestを持つTMP欠落cacheからの
+再生成、温度・高度coverage・provenanceの回復、次回のwarm reuseを両モデルで検証する。
+schemaの変更とは独立して、依存field変更時は既存cacheの無効化または再検証も必要になる。

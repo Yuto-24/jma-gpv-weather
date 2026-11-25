@@ -155,7 +155,9 @@ def prepare_records(cache_dir, run, prepared_bounds, valid_times, paths, hashes,
     namespace = "v1" if surface_temperature_level is None else f"v2-surface-{surface_temperature_level}"
     if variables is not None:
         # Opt-in WX has its own cache identity; legacy caches cannot supply RH.
-        namespace = "v3-wx-" + "-".join(sorted(v.value for v in variables))
+        # v3 may lack implicit TMP for ALOFT_WIND. Re-decode those caches even
+        # when the request and source hashes are unchanged (NetCDF stays schema 3).
+        namespace = "v4-wx-" + "-".join(sorted(v.value for v in variables))
         verify_manifest = True
     normalized_path = (
         cache_dir

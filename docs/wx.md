@@ -119,7 +119,9 @@ provenanceには初期時刻、対象の端点を含む元GRIBのURL/SHA-256、�
 - 0.6.0以前のreaderはschema 2を拒否する。新データを旧readerへ黙って渡さない。
 - WXを含まないsnapshotはschema 1で出力し続ける。旧snapshotは風・気温用途で利用できるが、
   RHを準備できるデータとはみなさない。
-- WX normalized cacheは`normalized/v3-wx-<要求変数>/RUN/KEY/weather.nc`。
+- WX normalized cacheは`normalized/v4-wx-<要求変数>/RUN/KEY/weather.nc`。
+  TMP依存の修正前に作られた`v3-wx-*`は再利用せず、同じ要求・source hashでも再デコードする。
+  キャッシュnamespaceの更新であり、NetCDF schema 3とportable schema 2は変更しない。
   ソースhashとファイルhashを照合し、実在するrecordのinventoryを保存する。
   旧normalized cacheの「全NaNのfieldを復元しない」挙動をWXへ流用しない。
 - raw cacheとRISHは従来どおり。snapshotのtransport/storage/retentionは利用側の責務。
@@ -182,3 +184,7 @@ NodeとLinux ChromiumのPyodide 0.27.7/CPython 3.12.7で、既存11 queryと
 CodeRabbit初回レビューで指摘された「風＋WX、気温を明示しない要求」の付随TMP欠落は、
 両モデルで修正前に再現する回帰テストを追加して修正した。
 修正後はeditable・wheelとも270件成功、同じopt-in 2件skip。
+続いて、TMPを欠く旧`v3-wx-*`キャッシュ（要求・source hash・file hashが有効）を再現し、
+両モデルで修正前の再利用による付随気温の欠落を確認した。namespace更新後は温度・高度coverage・
+provenanceが回復し、再生成したキャッシュは次回prepareで再デコードせず利用できる。
+この修正後はeditable・wheelとも272件成功、同じopt-in 2件skip。

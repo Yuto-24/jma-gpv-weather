@@ -12,7 +12,8 @@ from jma_gpv_weather import (
     CoveragePoint, HumidityProfileQuery, PRESSURE_RH_LEVELS_HPA, RunId,
     SurfaceTemperatureQuery, SurfaceWindQuery, EstimatedQnhQuery, WeatherVariable,
 )
-from jma_gpv_weather import grib, prepared
+from jma_gpv_weather import grib, normalized, prepared
+from jma_gpv_weather.cache import sha256_file
 from jma_gpv_weather.errors import CacheIntegrityError, GsmCacheIntegrityError, GsmProcessingError, MissingVariableError
 from wx_runtime_case import RUN, WX, Source, components, desktop_case, queries, records, requirements
 
@@ -239,3 +240,48 @@ def test_wind_plus_wx_retains_implicit_temperature_and_altitude_coverage(model, 
     assert mixed.query(query).values == baseline.query(query).values
     assert baseline.check_altitude_coverage(query).availability == Availability.AVAILABLE
     assert mixed.check_altitude_coverage(query).availability == Availability.AVAILABLE
+
+
+@pytest.mark.parametrize("model", ("MSM", "GSM_JAPAN"))
+def test_pre_fix_wind_plus_wx_cache_is_rebuilt(model, tmp_path, monkeypatch):
+    req = requirements(variables={WeatherVariable.ALOFT_WIND, WeatherVariable.CLOUD_COVER})
+    client, _, _, runs, expected = desktop_case(tmp_path / "reference", model, req)
+    reference_path = next((client.cache_dir / "normalized").rglob("weather.nc"))
+    manifest = json.loads(reference_path.with_name("manifest.json").read_text())
+    client.cache_dir = client.cache_dir / "pre-fix"
+
+    # Recreate 8a7b09c's schema-3 cache in its historical namespace. Keep the
+    # same request key and source hashes, with a valid file hash, so hash checks
+    # alone cannot reject the missing implicit TMP dependency.
+    old_path = (client.cache_dir / "normalized" / "v3-wx-aloft_wind-cloud_cover"
+                / str(RunId(RUN)) / reference_path.parent.name / "weather.nc")
+    old_pressure = {key: value for key, value in expected.pressure.items() if key[2] != "tmp"}
+    normalized._save_wx_records(old_path, expected.surface, old_pressure, {
+        "initial_time_utc": RUN.isoformat(),
+        "source_hashes_json": json.dumps(expected.source_hashes, sort_keys=True),
+    })
+    manifest["normalized_sha256"] = sha256_file(old_path)
+    old_path.with_name("manifest.json").write_text(json.dumps(manifest))
+    _, cached_pressure = normalized._load_wx_records(old_path)
+    assert cached_pressure and not any(key[2] == "tmp" for key in cached_pressure)
+
+    decoded = []
+    def decode(*args, **kwargs):
+        decoded.append(True)
+        return expected.surface, expected.pressure
+    monkeypatch.setattr(grib, "read_grib_records", decode)
+    rebuilt = client.prepare_run(RunId(RUN), req, runs)
+    query = AloftQuery(30.4, 130.7, req.valid_times[0], 1500)
+    assert expected.query(query).values["temperature_k"] is not None
+    assert rebuilt.query(query) == expected.query(query)
+    assert rebuilt.check_altitude_coverage(query).availability == Availability.AVAILABLE
+    assert rebuilt.query(queries()[1]) == expected.query(queries()[1])
+    assert rebuilt.source_hashes == manifest["source_hashes"]
+    assert len(decoded) == 1
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("rebuilt cache must be reused without another decode")
+    monkeypatch.setattr(grib, "read_grib_records", unexpected)
+    warm = client.prepare_run(RunId(RUN), req, runs)
+    assert warm.query(query) == rebuilt.query(query)
+    assert warm.check_altitude_coverage(query).availability == Availability.AVAILABLE
