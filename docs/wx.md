@@ -68,6 +68,7 @@ GSMでは`GsmClient` / `GsmPreparedData`を使う。`prepared_data`指定時は�
 湿度だけの要求ではRH/HGT/SP、雲量だけなら4種類の雲量とLsurfのみを準備する。
 WXが不要な要求は新要素をdecodeせず、旧キャッシュ経路・計算値・provenanceを維持する。
 WXと従来変数の混合要求も可能だが、独立assetにするとWX取得の失敗をNAV LOGと分離しやすい。
+上空風を要求した場合は、従来の`AloftQuery`の付随気温と高度coverageに必要なTMPも保持する。
 
 `HumidityProfileQuery.pressure_levels_hpa`は既定で12面。任意の部分集合を指定でき、
 例えば`(850, 300, 250)`では250 hPaだけが`PRESSURE_LEVEL_UNSUPPORTED`になる。
@@ -174,7 +175,10 @@ cold/warm/portableの値とprovenance、混合要求での既存風・気温値�
 Node/ChromiumのPyodide 0.27.7で読み、desktopと数値・全provenanceを照合する。
 物理iPhone/iPadと本番Static Feedの受入は後続作業である。
 
-2026-11-26のローカル検証では、editableとビルド済みwheelで各268件成功、既存のopt-in実通信試験2件skip。
+2026-11-26の初回ローカル検証では、editableとビルド済みwheelで各268件成功、既存のopt-in実通信試験2件skip。
 上記スクリプトの実GPV検証は別途両モデルで成功した。
 NodeとLinux ChromiumのPyodide 0.27.7/CPython 3.12.7で、既存11 queryと
 新WXの16 query（各モデル8件）、全provenance、NaNとportable再保存の一致を確認した。
+CodeRabbit初回レビューで指摘された「風＋WX、気温を明示しない要求」の付随TMP欠落は、
+両モデルで修正前に再現する回帰テストを追加して修正した。
+修正後はeditable・wheelとも270件成功、同じopt-in 2件skip。

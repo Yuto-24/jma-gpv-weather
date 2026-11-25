@@ -25,7 +25,9 @@ def requested_fields(variables, pressure_levels):
         surface.add("tmp_surface")
     if WeatherVariable.ESTIMATED_QNH in variables:
         surface.update(("sp", "mslp", "tmp_surface", "rh"))
-    for variable, names in ((WeatherVariable.ALOFT_WIND, ("hgt", "u", "v")),
+    # AloftQuery includes temperature and its altitude coverage checks TMP even
+    # when the caller only requested wind. Preserve that legacy dependency.
+    for variable, names in ((WeatherVariable.ALOFT_WIND, ("hgt", "u", "v", "tmp")),
                             (WeatherVariable.ALOFT_TEMPERATURE, ("hgt", "tmp"))):
         if variable in variables:
             pressure.update((level, name) for level in pressure_levels for name in names)

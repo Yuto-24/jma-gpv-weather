@@ -223,3 +223,19 @@ def test_grib_numeric_identity_is_opt_in_and_level_bounded():
         assert grib._identity(message(1, 1, "isobaricInhPa", level), (1000,), WX) == ("rh", level)
         assert grib._identity(message(3, 5, "isobaricInhPa", level), (1000,), WX) == ("hgt", level)
     assert grib._identity(message(1, 1, "isobaricInhPa", 250), (1000,), WX) is None
+
+
+@pytest.mark.parametrize("model", ("MSM", "GSM_JAPAN"))
+def test_wind_plus_wx_retains_implicit_temperature_and_altitude_coverage(model, tmp_path):
+    wind = {WeatherVariable.ALOFT_WIND}
+    # Legacy GRIB decoding includes TMP even when only wind was requested.
+    baseline_data = records(model, variables=wind | {WeatherVariable.ALOFT_TEMPERATURE})
+    _, _, _, _, baseline = desktop_case(tmp_path / "legacy", model,
+                                        requirements(variables=wind), baseline_data)
+    _, _, _, _, mixed = desktop_case(tmp_path / "mixed", model,
+                                     requirements(variables=wind | {WeatherVariable.CLOUD_COVER}))
+    query = AloftQuery(30.4, 130.7, queries()[0].valid_time, 1500)
+    assert baseline.query(query).values["temperature_k"] is not None
+    assert mixed.query(query).values == baseline.query(query).values
+    assert baseline.check_altitude_coverage(query).availability == Availability.AVAILABLE
+    assert mixed.check_altitude_coverage(query).availability == Availability.AVAILABLE
