@@ -110,8 +110,9 @@ MSMとGSM日本域のportable snapshotはmodel別の検証を各packageの`prepa
 公開契約は[MSM](msm-runtime.md)と[GSM](gsm-runtime.md)を参照。
 
 0.7.0の[WX契約](wx.md)では、既存の上空風・気温の面数を維持したままRH/HGTを
-1000–300 hPaまで取得する。WX要求時のみ`normalized/v3-wx-<要求変数>/`を使い、
+1000–300 hPaまで取得する。WX要求時のみ`normalized/v4-wx-<要求変数>/`を使い、
 全NaNのrecordと未収録recordを区別する。raw GRIBと取得元は既存経路を共有する。
+旧`v3-wx-*`キャッシュは再利用せず、元GRIBを再デコードして`v4-wx-*`へ再生成する。
 WX recordを含むportable snapshotはschema 2、含まないsnapshotは従来のschema 1で出力する。
 新readerは両方を読み、旧readerはschema 2を拒否する。以前の節のschema v1/面数の記述は
 従来の風・気温経路についての契約である。
