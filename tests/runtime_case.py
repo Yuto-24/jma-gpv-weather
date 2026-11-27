@@ -119,3 +119,5 @@ if __name__ == "__main__":
     write_case(sys.argv[1])
     from gsm_runtime_case import write_case as write_gsm_case
     write_gsm_case(sys.argv[1])
+    from wx_runtime_case import write_case as write_wx_case
+    write_wx_case(sys.argv[1])

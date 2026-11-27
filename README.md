@@ -6,6 +6,11 @@ JMA GPV向けの取得・cache・補間基盤です。対応モデルはMSMとGS
 
 ## 対応機能
 
+0.7.0では、MSM/GSM日本域の気圧面相対湿度（1000–300 hPaの12面）と
+全・下・中・上層雲量を、独立した要求で取得できます。`HumidityProfileQuery`と
+`CloudCoverQuery`は通常の`prepare_run`とLocal/Pyodideのpreparedデータの両方で使用できます。
+契約・使用例・互換性・実データの容量測定は[WX API](docs/wx.md)を参照してください。
+
 - 既定範囲：29.7–35.2°N、128.5–134.8°E
 - `Bounds`による任意矩形
 - 要求全体を覆う最新の完全なForecast Runの選択

@@ -5,6 +5,8 @@ import math
 from ..errors import GsmProcessingError
 from ..models import (AloftQuery, AloftTemperatureQuery, SurfaceTemperatureQuery,
                       Availability, WeatherResult, ForecastRequirements, WeatherVariable)
+from ..models import HumidityProfileQuery, CloudCoverQuery
+from ..wx import query_wx
 from ..weather import WeatherDataset
 from .spec import LEVELS_HPA, required_valid_times
 
@@ -37,6 +39,8 @@ class PreparedGsmForecast(WeatherDataset):
                                      'pressure_levels_hpa': LEVELS_HPA})
 
     def query(self, query):
+        if isinstance(query, (HumidityProfileQuery, CloudCoverQuery)):
+            return query_wx(self, query, model="GSM_JAPAN")
         if not isinstance(query, (AloftQuery, SurfaceTemperatureQuery)):
             raise ValueError(f'Unsupported GSM query: {type(query).__name__}')
         if query.valid_time.tzinfo is None:

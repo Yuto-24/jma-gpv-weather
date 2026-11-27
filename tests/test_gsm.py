@@ -18,7 +18,8 @@ from jma_gpv_weather import grib
 
 UTC = timezone.utc
 RUN = datetime(2026, 9, 12, tzinfo=UTC)
-VARS = spec.SUPPORTED_VARIABLES
+VARS = frozenset({WeatherVariable.ALOFT_WIND, WeatherVariable.ALOFT_TEMPERATURE,
+                  WeatherVariable.SURFACE_TEMPERATURE})
 
 
 def req(*hours, variables=VARS, run=RUN):

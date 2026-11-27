@@ -11,10 +11,10 @@ import pytest
 from jma_gpv_weather import (
     AloftQuery, AloftTemperatureQuery, Availability, Bounds, ForecastRequirements,
     GsmClient, RunId, SurfaceTemperatureQuery,
+    WeatherVariable,
 )
 from jma_gpv_weather import grib
 from jma_gpv_weather.cache import sha256_file, verify_cache
-from jma_gpv_weather.gsm.spec import SUPPORTED_VARIABLES
 
 pytestmark = [pytest.mark.real_data, pytest.mark.skipif(
     os.environ.get('JMA_GPV_REAL_GSM') != '1',
@@ -27,7 +27,8 @@ def test_fixed_gsm_run_queries_hashes_and_warm_cache(tmp_path, monkeypatch):
     initial = datetime(2026, 9, 12, tzinfo=timezone.utc)
     run = RunId(initial)
     times = tuple(initial + timedelta(hours=h) for h in (0, 1.5, 131.5, 133.5, 264))
-    requirements = ForecastRequirements(times, SUPPORTED_VARIABLES)
+    requirements = ForecastRequirements(times, frozenset({WeatherVariable.ALOFT_WIND,
+        WeatherVariable.ALOFT_TEMPERATURE, WeatherVariable.SURFACE_TEMPERATURE}))
     root = Path(os.environ.get('JMA_GPV_REAL_CACHE', str(tmp_path)))
     client = GsmClient(root, Bounds(31.8, 31.95, 131.35, 131.55))
     runs = client.discover_runs(requirements, as_of=initial + timedelta(hours=6))

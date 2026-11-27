@@ -1,0 +1,137 @@
+{
+  "run_utc": "2026-09-12T00:00:00+00:00",
+  "python": "3.11.15",
+  "numpy": "2.4.6",
+  "pygrib": "2.1.8",
+  "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "bounds": {
+    "lat_min": 29.7,
+    "lat_max": 35.2,
+    "lon_min": 128.5,
+    "lon_max": 134.8
+  },
+  "window_hours": [
+    0,
+    12
+  ],
+  "models": {
+    "MSM": {
+      "sources": [
+        {
+          "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/12/Z__C_RJTD_20260912000000_MSM_GPV_Rjp_L-pall_FH00-15_grib2.bin",
+          "sha256": "9f03772de3f164088339d52702b907f2f88e206d615112861abc74603f5f0c3f",
+          "bytes": 50522465
+        },
+        {
+          "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/12/Z__C_RJTD_20260912000000_MSM_GPV_Rjp_Lsurf_FH00-15_grib2.bin",
+          "sha256": "dd83a4768653a0bd947b8b42c3dddd55b7f33f0cef779bdf3692ccfc99f8c479",
+          "bytes": 69241393
+        }
+      ],
+      "measurements": {
+        "baseline": {
+          "compressed_bytes": 2733856,
+          "array_bytes": 12695584,
+          "expanded_zip_bytes": 12747928,
+          "members": 283,
+          "load_seconds": 0.08781134698074311,
+          "rss_before_bytes": 46493696,
+          "rss_after_bytes": 69419008,
+          "peak_rss_bytes": 69562368
+        },
+        "wx": {
+          "compressed_bytes": 1874731,
+          "array_bytes": 9472424,
+          "expanded_zip_bytes": 9508230,
+          "members": 190,
+          "load_seconds": 0.06565190199762583,
+          "rss_before_bytes": 46223360,
+          "rss_after_bytes": 64913408,
+          "peak_rss_bytes": 65359872
+        },
+        "mixed": {
+          "compressed_bytes": 3053238,
+          "array_bytes": 14417024,
+          "expanded_zip_bytes": 14482539,
+          "members": 353,
+          "load_seconds": 0.09924062399659306,
+          "rss_before_bytes": 46264320,
+          "rss_after_bytes": 71569408,
+          "peak_rss_bytes": 71569408
+        }
+      },
+      "direct_gridpoint": {
+        "hgt": 1578.31982421875,
+        "rh": 93.15204429626465,
+        "low": 30.029296875,
+        "middle": 36.23046875,
+        "high": 0.0,
+        "total": 36.23046875
+      },
+      "checks": [
+        "cold/warm/portable values and provenance equal",
+        "legacy values and provenance equal in mixed request",
+        "direct pygrib RH/HGT/cloud values equal"
+      ]
+    },
+    "GSM_JAPAN": {
+      "sources": [
+        {
+          "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/12/Z__C_RJTD_20260912000000_GSM_GPV_Rjp_Gll0p1deg_L-pall_FD0000-0100_grib2.bin",
+          "sha256": "d908038ce8aa059f5168ce07dd5b999ed65c81f3c91afa5737fa7350e738c19e",
+          "bytes": 45315774
+        },
+        {
+          "url": "https://database.rish.kyoto-u.ac.jp/arch/jmadata/data/gpv/original/2026/09/12/Z__C_RJTD_20260912000000_GSM_GPV_Rjp_Gll0p1deg_Lsurf_FD0000-0100_grib2.bin",
+          "sha256": "3f67f78e3276c09e0859d83e05e7f7b2fbe3d22b30e99fc4f7d55427fbe87fc9",
+          "bytes": 19511629
+        }
+      ],
+      "measurements": {
+        "baseline": {
+          "compressed_bytes": 1957979,
+          "array_bytes": 9885984,
+          "expanded_zip_bytes": 9960258,
+          "members": 403,
+          "load_seconds": 0.09575613692868501,
+          "rss_before_bytes": 45903872,
+          "rss_after_bytes": 65802240,
+          "peak_rss_bytes": 65826816
+        },
+        "wx": {
+          "compressed_bytes": 1013704,
+          "array_bytes": 4647888,
+          "expanded_zip_bytes": 4683784,
+          "members": 190,
+          "load_seconds": 0.054931662045419216,
+          "rss_before_bytes": 46735360,
+          "rss_after_bytes": 59912192,
+          "peak_rss_bytes": 60104704
+        },
+        "mixed": {
+          "compressed_bytes": 2360153,
+          "array_bytes": 11361504,
+          "expanded_zip_bytes": 11447119,
+          "members": 463,
+          "load_seconds": 0.10819396493025124,
+          "rss_before_bytes": 46399488,
+          "rss_after_bytes": 67997696,
+          "peak_rss_bytes": 68157440
+        }
+      },
+      "direct_gridpoint": {
+        "hgt": 1578.3216552734375,
+        "rh": 88.87500850000015,
+        "low": 43.603515625,
+        "middle": 35.83984375,
+        "high": 0.0,
+        "total": 47.75390625
+      },
+      "checks": [
+        "cold/warm/portable values and provenance equal",
+        "legacy values and provenance equal in mixed request",
+        "direct pygrib RH/HGT/cloud values equal"
+      ]
+    }
+  }
+}

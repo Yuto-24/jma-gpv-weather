@@ -7,7 +7,9 @@ from ..interpolation import wind_metrics
 from ..models import (
     AloftQuery, AloftTemperatureQuery, Availability, EstimatedQnhQuery,
     SurfaceWindQuery, SurfaceTemperatureQuery, WeatherResult, ForecastRequirements, WeatherVariable,
+    HumidityProfileQuery, CloudCoverQuery,
 )
+from ..wx import query_wx
 from ..weather import WeatherDataset, RecordMap
 from .qnh import estimate_qnh
 
@@ -32,6 +34,11 @@ class PreparedForecast(WeatherDataset):
     def query(self, query):
         if query.valid_time.tzinfo is None:
             raise InvalidQueryError("valid_time must be timezone-aware")
+        if isinstance(query, (HumidityProfileQuery, CloudCoverQuery)):
+            try:
+                return query_wx(self, query, model="MSM")
+            except ValueError as exc:
+                raise InvalidQueryError(str(exc)) from exc
         if isinstance(query, AloftTemperatureQuery):
             return self.query_aloft_temperature(query)
         if isinstance(query, SurfaceTemperatureQuery):

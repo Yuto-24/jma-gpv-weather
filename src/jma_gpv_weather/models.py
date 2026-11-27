@@ -12,6 +12,18 @@ class WeatherVariable(str, Enum):
     SURFACE_WIND = "surface_wind"
     SURFACE_TEMPERATURE = "surface_temperature"
     ESTIMATED_QNH = "estimated_qnh"
+    PRESSURE_RELATIVE_HUMIDITY = "pressure_relative_humidity"
+    CLOUD_COVER = "cloud_cover"
+
+
+PRESSURE_RH_LEVELS_HPA = (1000, 975, 950, 925, 900, 850, 800, 700, 600, 500, 400, 300)
+
+
+class CloudLayer(str, Enum):
+    TOTAL = "total"
+    LOW = "low"
+    MIDDLE = "middle"
+    HIGH = "high"
 
 
 class Availability(str, Enum):
@@ -78,6 +90,22 @@ class SurfaceTemperatureQuery:
 
 
 @dataclass(frozen=True)
+class HumidityProfileQuery:
+    latitude: float
+    longitude: float
+    valid_time: datetime
+    pressure_levels_hpa: tuple[int, ...] = PRESSURE_RH_LEVELS_HPA
+
+
+@dataclass(frozen=True)
+class CloudCoverQuery:
+    latitude: float
+    longitude: float
+    valid_time: datetime
+    layer: CloudLayer = CloudLayer.TOTAL
+
+
+@dataclass(frozen=True)
 class AloftTemperatureQuery(AloftQuery):
     """Temperature-only query; does not require wind fields."""
 
@@ -106,6 +134,18 @@ class WeatherResult:
     values: Mapping[str, float | str | None] = field(default_factory=dict)
     reason_code: str | None = None
     warnings: tuple[str, ...] = ("NOT_FOR_OPERATIONAL_USE",)
+    provenance: Provenance = field(default_factory=Provenance)
+
+
+@dataclass(frozen=True)
+class HumidityProfileResult:
+    """Native pressure samples; unavailable levels never imply cloud-free air."""
+
+    availability: Availability
+    levels: tuple[WeatherResult, ...]
+    surface_pressure_pa: float | None = None
+    reason_code: str | None = None
+    warnings: tuple[str, ...] = ("NOT_FOR_OPERATIONAL_USE", "HUMIDITY_IS_NOT_CLOUD_PROBABILITY")
     provenance: Provenance = field(default_factory=Provenance)
 
 
